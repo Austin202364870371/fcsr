@@ -21,6 +21,23 @@ from data_io import stream_jsonl
 from modeling import build_biencoder_examples, info_nce_loss, last_token_pool
 
 
+def create_training_progress(
+    epoch: int,
+    total_batches: int,
+    progress_factory: Any | None = None,
+) -> Any:
+    if progress_factory is None:
+        from tqdm import tqdm
+
+        progress_factory = tqdm
+    return progress_factory(
+        total=total_batches,
+        desc=f"Bi-Encoder epoch {epoch}",
+        unit="batch",
+        dynamic_ncols=True,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train the FCSR Qwen bi-encoder")
     parser.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
@@ -201,6 +218,10 @@ def train(
         order = list(range(len(examples)))
         accumulation_count = 0
         rng.shuffle(order)
+        progress = create_training_progress(
+            epoch=epoch + 1,
+            total_batches=batches_per_epoch,
+        )
         for start in range(0, len(order), micro_batch):
             batch = [examples[index] for index in order[start : start + micro_batch]]
             queries = [example["query_text"] for example in batch]
@@ -237,13 +258,16 @@ def train(
                     settings["temperature"],
                 )
             (loss / accumulation).backward()
+            loss_value = float(loss.detach().cpu())
             history.append(
                 {
                     "epoch": epoch + 1,
                     "batch": global_batch + 1,
-                    "loss": float(loss.detach().cpu()),
+                    "loss": loss_value,
                 }
             )
+            progress.update(1)
+            progress.set_postfix(loss=f"{loss_value:.4f}")
             global_batch += 1
             accumulation_count += 1
             is_boundary = accumulation_count >= accumulation
@@ -254,6 +278,7 @@ def train(
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 accumulation_count = 0
+        progress.close()
 
     output_dir = Path(settings["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)

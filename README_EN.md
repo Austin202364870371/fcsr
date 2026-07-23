@@ -189,7 +189,7 @@ python -B scripts/train_biencoder.py \
   --output-dir checkpoints/fcsr-emb-0.6b
 ```
 
-Defaults: one epoch, micro-batch 1, gradient accumulation 16, BF16, gradient checkpointing, and InfoNCE temperature 0.05. Use `--method full` for an approach closer to SkillRouter but with higher memory and training costs.
+Defaults: one epoch, micro-batch 1, gradient accumulation 16, BF16, gradient checkpointing, and InfoNCE temperature 0.05. During training, the terminal shows the current epoch, completed batches, live loss, speed, and ETA. Use `--method full` for an approach closer to SkillRouter but with higher memory and training costs.
 
 ## 10. Build Top-20 Groups and Train the Reranker
 

@@ -185,7 +185,7 @@ python -B scripts/train_biencoder.py \
   --output-dir checkpoints/fcsr-emb-0.6b
 ```
 
-默认配置为：训练 1 个 epoch、micro-batch 为 1、梯度累积 16 步、BF16、梯度检查点，以及 0.05 的 InfoNCE 温度。若希望更接近 SkillRouter 的全量微调方式，可以使用 `--method full`，但显存和训练成本会更高。
+默认配置为：训练 1 个 epoch、micro-batch 为 1、梯度累积 16 步、BF16、梯度检查点，以及 0.05 的 InfoNCE 温度。正式训练会显示当前 epoch、已完成 batch、实时 loss、速度和 ETA。若希望更接近 SkillRouter 的全量微调方式，可以使用 `--method full`，但显存和训练成本会更高。
 
 ## 10. 构造 Top-20 候选组并训练 Reranker
 
