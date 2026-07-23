@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -20,6 +20,7 @@ def semantic_topk(
     k: int,
     device: str | None = None,
     query_batch_size: int = 128,
+    progress: Callable[[int], None] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     queries = _normalized_matrix(query_embeddings, "query_embeddings")
     skills = _normalized_matrix(skill_embeddings, "skill_embeddings")
@@ -29,7 +30,7 @@ def semantic_topk(
         raise ValueError("k and query_batch_size must be positive")
     k = min(k, skills.shape[0])
     if device and device.startswith("cuda"):
-        return _semantic_topk_torch(queries, skills, k, device, query_batch_size)
+        return _semantic_topk_torch(queries, skills, k, device, query_batch_size, progress)
 
     index_batches = []
     score_batches = []
@@ -44,6 +45,8 @@ def semantic_topk(
             batch_scores[row] = values[order]
         index_batches.append(batch_indices)
         score_batches.append(batch_scores)
+        if progress is not None:
+            progress(len(similarities))
     return np.concatenate(index_batches), np.concatenate(score_batches)
 
 
@@ -53,6 +56,7 @@ def _semantic_topk_torch(
     k: int,
     device: str,
     query_batch_size: int,
+    progress: Callable[[int], None] | None,
 ) -> tuple[np.ndarray, np.ndarray]:
     try:
         import torch
@@ -70,6 +74,8 @@ def _semantic_topk_torch(
             scores, indices = torch.topk(query_tensor @ skill_tensor.T, k=k, dim=1)
             index_batches.append(indices.cpu().numpy())
             score_batches.append(scores.float().cpu().numpy())
+            if progress is not None:
+                progress(len(query_tensor))
     return np.concatenate(index_batches), np.concatenate(score_batches)
 
 def merge_negative_sources(

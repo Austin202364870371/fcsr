@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 QUERY_INSTRUCTION = (
@@ -134,6 +134,7 @@ def encode_texts(
     max_length: int,
     batch_size: int,
     device: str,
+    progress: Callable[[int], None] | None = None,
 ) -> Any:
     """Encode text batches into normalized NumPy vectors."""
     try:
@@ -148,8 +149,9 @@ def encode_texts(
     batches = []
     with torch.no_grad():
         for start in range(0, len(texts), batch_size):
+            batch_texts = texts[start : start + batch_size]
             encoded = tokenizer(
-                texts[start : start + batch_size],
+                batch_texts,
                 padding=True,
                 truncation=True,
                 max_length=max_length,
@@ -160,6 +162,8 @@ def encode_texts(
             hidden_states = getattr(outputs, "last_hidden_state", outputs[0])
             pooled = last_token_pool(hidden_states, encoded["attention_mask"])
             batches.append(functional.normalize(pooled, p=2, dim=1).float().cpu())
+            if progress is not None:
+                progress(len(batch_texts))
     if not batches:
         return torch.empty((0, 0), dtype=torch.float32).numpy()
     return torch.cat(batches, dim=0).numpy()
@@ -256,6 +260,7 @@ def build_reranker_groups(
     records: Any,
     skills: Any,
     top_k: int = 20,
+    progress: Callable[[int], None] | None = None,
 ) -> RerankerGroupResult:
     if top_k <= 0:
         raise ValueError("top_k must be positive")
@@ -305,6 +310,8 @@ def build_reranker_groups(
                 break
         if not any(positive_mask):
             dropped += 1
+            if progress is not None:
+                progress(1)
             continue
         groups.append(
             {
@@ -314,6 +321,8 @@ def build_reranker_groups(
                 "positive_mask": positive_mask,
             }
         )
+        if progress is not None:
+            progress(1)
     return RerankerGroupResult(
         groups=groups,
         total_records=total,

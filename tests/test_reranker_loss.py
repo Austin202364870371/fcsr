@@ -33,13 +33,20 @@ class RerankerTests(unittest.TestCase):
             },
         ]
 
-        result = build_reranker_groups(records, skills, top_k=20)
+        processed: list[int] = []
+        result = build_reranker_groups(
+            records,
+            skills,
+            top_k=20,
+            progress=processed.append,
+        )
 
         self.assertEqual(result.dropped_no_positive, 1)
         self.assertEqual(len(result.groups), 1)
         group = result.groups[0]
         self.assertEqual(group["positive_mask"], [False, True])
         self.assertEqual([item["rank"] for item in group["candidates"]], [1, 2])
+        self.assertEqual(processed, [1, 1])
 
     @unittest.skipUnless(
         TORCH_AVAILABLE,

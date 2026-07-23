@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from tqdm import tqdm
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -23,6 +25,31 @@ from modeling import (
     listwise_cross_entropy,
     tokenize_reranker_text,
 )
+
+
+def create_training_progress(
+    epoch: int,
+    total_groups: int,
+    progress_factory: Any | None = None,
+) -> Any:
+    if progress_factory is None:
+        progress_factory = tqdm
+    return progress_factory(
+        total=total_groups,
+        desc=f"Reranker epoch {epoch}",
+        unit="group",
+        dynamic_ncols=True,
+    )
+
+
+def enable_checkpoint_input_gradients(model: Any) -> None:
+    enable = getattr(model, "enable_input_require_grads", None)
+    if not callable(enable):
+        raise RuntimeError(
+            "the base model does not support input gradients required by "
+            "LoRA with gradient checkpointing"
+        )
+    enable()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,11 +95,19 @@ def run_prepare(args: argparse.Namespace) -> dict[str, Any]:
     output = Path(args.output)
     if output.exists() and not args.overwrite:
         raise FileExistsError("output exists; pass --overwrite to replace it")
-    result = build_reranker_groups(
-        stream_jsonl(args.retrieval),
-        stream_jsonl(args.skills),
-        top_k=args.top_k,
-    )
+    records = list(stream_jsonl(args.retrieval))
+    with tqdm(
+        total=len(records),
+        desc="Reranker: building groups",
+        unit="query",
+        dynamic_ncols=True,
+    ) as progress:
+        result = build_reranker_groups(
+            records,
+            stream_jsonl(args.skills),
+            top_k=args.top_k,
+            progress=progress.update,
+        )
     write_jsonl_atomic(output, result.groups)
     counts = [len(group["candidates"]) for group in result.groups]
     return {
@@ -176,6 +211,8 @@ def train(
         torch_dtype="auto",
         trust_remote_code=True,
     )
+    if settings["gradient_checkpointing"]:
+        enable_checkpoint_input_gradients(model)
     if tokenizer.pad_token is None and tokenizer.eos_token is not None:
         tokenizer.pad_token = tokenizer.eos_token
     yes_id = tokenizer.convert_tokens_to_ids("yes")
@@ -225,6 +262,10 @@ def train(
         order = list(range(len(groups)))
         rng.shuffle(order)
         accumulation_count = 0
+        progress = create_training_progress(
+            epoch=epoch + 1,
+            total_groups=len(order),
+        )
         for position, index in enumerate(order):
             group = groups[index]
             tokenized = [
@@ -255,14 +296,17 @@ def train(
                     torch.tensor(group["positive_mask"], device=device),
                 )
             (loss / accumulation).backward()
+            loss_value = float(loss.detach().cpu())
             accumulation_count += 1
             history.append(
                 {
                     "epoch": epoch + 1,
                     "group": position + 1,
-                    "loss": float(loss.detach().cpu()),
+                    "loss": loss_value,
                 }
             )
+            progress.update(1)
+            progress.set_postfix(loss=f"{loss_value:.4f}")
             is_last = position + 1 == len(order)
             if accumulation_count >= accumulation or is_last:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -270,6 +314,7 @@ def train(
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 accumulation_count = 0
+        progress.close()
 
     output_dir = Path(settings["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from tqdm import tqdm
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -69,23 +71,49 @@ def run_retrieve(args: argparse.Namespace) -> dict[str, Any]:
     queries = load_jsonl(args.queries)
     skills = list(stream_jsonl(args.skills))
     model, tokenizer = load_embedding_model(args.model, args.device)
-    skill_embeddings = encode_texts(
-        model,
-        tokenizer,
-        [format_skill(skill, desc_max=500, body_max=8000) for skill in skills],
-        args.skill_max_length,
-        args.batch_size,
-        args.device,
-    )
-    query_embeddings = encode_texts(
-        model,
-        tokenizer,
-        [format_query(_query_text(query)) for query in queries],
-        args.query_max_length,
-        args.batch_size,
-        args.device,
-    )
-    indices, scores = semantic_topk(query_embeddings, skill_embeddings, args.top_k, device=args.device)
+    with tqdm(
+        total=len(skills),
+        desc="Retrieve: encoding skills",
+        unit="skill",
+        dynamic_ncols=True,
+    ) as progress:
+        skill_embeddings = encode_texts(
+            model,
+            tokenizer,
+            [format_skill(skill, desc_max=500, body_max=8000) for skill in skills],
+            args.skill_max_length,
+            args.batch_size,
+            args.device,
+            progress=progress.update,
+        )
+    with tqdm(
+        total=len(queries),
+        desc="Retrieve: encoding queries",
+        unit="query",
+        dynamic_ncols=True,
+    ) as progress:
+        query_embeddings = encode_texts(
+            model,
+            tokenizer,
+            [format_query(_query_text(query)) for query in queries],
+            args.query_max_length,
+            args.batch_size,
+            args.device,
+            progress=progress.update,
+        )
+    with tqdm(
+        total=len(queries),
+        desc="Retrieve: scoring queries",
+        unit="query",
+        dynamic_ncols=True,
+    ) as progress:
+        indices, scores = semantic_topk(
+            query_embeddings,
+            skill_embeddings,
+            args.top_k,
+            device=args.device,
+            progress=progress.update,
+        )
     records = []
     predictions = {}
     for row, query in enumerate(queries):

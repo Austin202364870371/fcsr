@@ -22,6 +22,21 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(indices.tolist(), [[0, 1], [2, 1]])
         self.assertGreater(scores[0, 0], scores[0, 1])
 
+    def test_semantic_topk_reports_processed_queries(self) -> None:
+        queries = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+        skills = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+        processed: list[int] = []
+
+        semantic_topk(
+            queries,
+            skills,
+            k=1,
+            query_batch_size=1,
+            progress=processed.append,
+        )
+
+        self.assertEqual(processed, [1, 1])
+
     def test_source_merge_preserves_targets_and_uniqueness(self) -> None:
         local = {
             "query_id": "q",
