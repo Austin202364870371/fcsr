@@ -38,6 +38,16 @@ def create_training_progress(
     )
 
 
+def enable_checkpoint_input_gradients(model: Any) -> None:
+    enable = getattr(model, "enable_input_require_grads", None)
+    if not callable(enable):
+        raise RuntimeError(
+            "the base model does not support input gradients required by "
+            "LoRA with gradient checkpointing"
+        )
+    enable()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train the FCSR Qwen bi-encoder")
     parser.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
@@ -172,6 +182,8 @@ def train(
         torch_dtype="auto",
         trust_remote_code=True,
     )
+    if settings["gradient_checkpointing"]:
+        enable_checkpoint_input_gradients(model)
     if settings["method"] == "lora":
         model = get_peft_model(
             model,
