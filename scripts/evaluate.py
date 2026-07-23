@@ -160,34 +160,36 @@ def run_rerank(args: argparse.Namespace) -> dict[str, Any]:
     model, tokenizer, yes_id, no_id = _load_reranker(args.model, args.device)
     reranked_records = []
     predictions = {}
-    for record in records:
-        candidates = record.get("retrieved_candidates", [])[: args.top_k]
-        prompts = [
-            format_rerank_prompt(_query_text(record), skills[item["skill_id"]])
-            for item in candidates
-        ]
-        rerank_scores = _score_prompts(
-            model,
-            tokenizer,
-            prompts,
-            yes_id,
-            no_id,
-            args.max_length,
-            args.batch_size,
-            args.device,
-        )
-        reranked = sorted(
-            (
-                {**candidate, "reranker_score": float(score)}
-                for candidate, score in zip(candidates, rerank_scores)
-            ),
-            key=lambda item: (-item["reranker_score"], item["skill_id"]),
-        )
-        for rank, candidate in enumerate(reranked, start=1):
-            candidate["reranker_rank"] = rank
-        query_id = _query_id(record)
-        predictions[query_id] = [item["skill_id"] for item in reranked]
-        reranked_records.append({**record, "reranked_candidates": reranked})
+    with create_rerank_progress(len(records)) as progress:
+        for record in records:
+            candidates = record.get("retrieved_candidates", [])[: args.top_k]
+            prompts = [
+                format_rerank_prompt(_query_text(record), skills[item["skill_id"]])
+                for item in candidates
+            ]
+            rerank_scores = _score_prompts(
+                model,
+                tokenizer,
+                prompts,
+                yes_id,
+                no_id,
+                args.max_length,
+                args.batch_size,
+                args.device,
+            )
+            reranked = sorted(
+                (
+                    {**candidate, "reranker_score": float(score)}
+                    for candidate, score in zip(candidates, rerank_scores)
+                ),
+                key=lambda item: (-item["reranker_score"], item["skill_id"]),
+            )
+            for rank, candidate in enumerate(reranked, start=1):
+                candidate["reranker_rank"] = rank
+            query_id = _query_id(record)
+            predictions[query_id] = [item["skill_id"] for item in reranked]
+            reranked_records.append({**record, "reranked_candidates": reranked})
+            progress.update(1)
     _write_json(args.output_predictions, predictions)
     write_jsonl_atomic(args.output_records, reranked_records)
     return {
@@ -197,6 +199,19 @@ def run_rerank(args: argparse.Namespace) -> dict[str, Any]:
         "records": args.output_records,
     }
 
+
+def create_rerank_progress(
+    total_queries: int,
+    progress_factory: Any | None = None,
+) -> Any:
+    if progress_factory is None:
+        progress_factory = tqdm
+    return progress_factory(
+        total=total_queries,
+        desc="Rerank: scoring queries",
+        unit="query",
+        dynamic_ncols=True,
+    )
 
 def run_score(args: argparse.Namespace) -> dict[str, Any]:
     tasks = load_jsonl(args.tasks)
