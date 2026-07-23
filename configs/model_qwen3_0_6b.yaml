@@ -1,0 +1,26 @@
+model:
+  embedding_name_or_path: Qwen/Qwen3-Embedding-0.6B
+  reranker_name_or_path: Qwen/Qwen3-Reranker-0.6B
+  max_query_length: 512
+  max_skill_length: 2048
+  max_reranker_length: 4096
+
+training:
+  method: lora
+  learning_rate_biencoder: 0.00002
+  learning_rate_reranker: 0.00001
+  temperature: 0.05
+  epochs_biencoder: 1
+  epochs_reranker: 1
+  batch_size_biencoder: 1
+  batch_size_reranker: 1
+  gradient_accumulation_steps: 16
+  precision: bf16
+  gradient_checkpointing: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+
+paths:
+  biencoder_checkpoint: checkpoints/fcsr-emb-0.6b
+  reranker_checkpoint: checkpoints/fcsr-rank-0.6b

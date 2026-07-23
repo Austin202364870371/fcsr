@@ -1,0 +1,41 @@
+project_name: fcsr
+seed: 42
+
+data:
+  raw_skills: data/raw/skills_easy.jsonl
+  raw_tasks: data/raw/evaluation_queries.jsonl
+  contract_sample: data/contracts/sample_skills.jsonl
+  contracts: data/contracts/contracts.jsonl
+  contract_failures: data/contracts/failures.jsonl
+  contract_manifest: data/contracts/manifest.json
+  synthetic_queries: data/synthetic/queries.jsonl
+  biencoder_train: data/synthetic/train_biencoder.jsonl
+  reranker_train: data/synthetic/train_reranker.jsonl
+
+contracts:
+  schema_version: contract_v2
+  canonical_language: en
+  sampling_strategy: category_language_stratified
+  sample_size: 8000
+  llm:
+    provider: deepseek
+    model: deepseek-v4-flash
+    temperature: 0.0
+    max_attempts: 3
+    backoff_seconds: 2.0
+
+retrieval:
+  top_n: 100
+  rerank_top_k: 20
+  bundle_k: 10
+  semantic_negative_top_k: 50
+  embedding_fn_threshold: 0.95
+  trigram_fn_threshold: 0.85
+
+selection:
+  alpha_coverage: 1.0
+  beta_duplicate: 0.5
+  gamma_context_cost: 0.0
+
+evaluation:
+  k_values: [10, 20, 50, 100]

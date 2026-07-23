@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.py[cod]
+
+data/raw/
+data/contracts/
+data/synthetic/
+data/processed/
+data/index/
+
+checkpoints/
+reports/

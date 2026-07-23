@@ -1,0 +1,306 @@
+"""Train the FCSR bi-encoder with SR-compatible InfoNCE."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import random
+import sys
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from data_io import stream_jsonl
+from modeling import build_biencoder_examples, info_nce_loss, last_token_pool
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Train the FCSR Qwen bi-encoder")
+    parser.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
+    parser.add_argument("--train-data", default="data/synthetic/train_biencoder.jsonl")
+    parser.add_argument("--skills", default="data/raw/skills_easy.jsonl")
+    parser.add_argument("--model")
+    parser.add_argument("--output-dir")
+    parser.add_argument("--method", choices=("lora", "full"))
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--micro-batch-size", type=int)
+    parser.add_argument("--gradient-accumulation-steps", type=int)
+    parser.add_argument("--learning-rate", type=float)
+    parser.add_argument("--temperature", type=float)
+    parser.add_argument("--query-max-length", type=int)
+    parser.add_argument("--skill-max-length", type=int)
+    parser.add_argument("--precision", choices=("bf16", "fp32"))
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--dry-run", action="store_true")
+    return parser
+
+
+def load_config(path: str | Path) -> dict[str, Any]:
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError("pyyaml is required to read the training config") from exc
+    with Path(path).open("r", encoding="utf-8") as handle:
+        value = yaml.safe_load(handle) or {}
+    if not isinstance(value, dict):
+        raise ValueError("training config must be a YAML object")
+    return value
+
+
+def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
+    config = load_config(args.config)
+    model = config.get("model", {})
+    training = config.get("training", {})
+    paths = config.get("paths", {})
+    return {
+        "model": args.model
+        or model.get("embedding_name_or_path")
+        or "Qwen/Qwen3-Embedding-0.6B",
+        "output_dir": args.output_dir
+        or paths.get("biencoder_checkpoint")
+        or "checkpoints/fcsr-emb-0.6b",
+        "method": args.method or training.get("method", "lora"),
+        "epochs": args.epochs
+        if args.epochs is not None
+        else training.get("epochs_biencoder", 1),
+        "micro_batch_size": args.micro_batch_size
+        if args.micro_batch_size is not None
+        else training.get("batch_size_biencoder", 1),
+        "gradient_accumulation_steps": args.gradient_accumulation_steps
+        if args.gradient_accumulation_steps is not None
+        else training.get("gradient_accumulation_steps", 16),
+        "learning_rate": args.learning_rate
+        if args.learning_rate is not None
+        else training.get("learning_rate_biencoder", 2e-5),
+        "temperature": args.temperature
+        if args.temperature is not None
+        else training.get("temperature", 0.05),
+        "query_max_length": args.query_max_length
+        if args.query_max_length is not None
+        else model.get("max_query_length", 512),
+        "skill_max_length": args.skill_max_length
+        if args.skill_max_length is not None
+        else model.get("max_skill_length", 2048),
+        "precision": args.precision or training.get("precision", "bf16"),
+        "gradient_checkpointing": training.get("gradient_checkpointing", True),
+        "lora_r": training.get("lora_r", 8),
+        "lora_alpha": training.get("lora_alpha", 16),
+        "lora_dropout": training.get("lora_dropout", 0.05),
+    }
+
+
+def load_examples(args: argparse.Namespace) -> list[dict[str, Any]]:
+    records = list(stream_jsonl(args.train_data))
+    skills = list(stream_jsonl(args.skills))
+    return build_biencoder_examples(records, skills, max_negatives=10)
+
+
+def summarize_examples(
+    examples: list[dict[str, Any]],
+    settings: dict[str, Any],
+) -> dict[str, Any]:
+    sources = Counter(
+        source for example in examples for source in example["negative_sources"]
+    )
+    negatives = [len(example["negative_skill_ids"]) for example in examples]
+    return {
+        "examples": len(examples),
+        "negative_sources": dict(sorted(sources.items())),
+        "mean_negatives": sum(negatives) / len(negatives) if negatives else 0.0,
+        "effective_query_batch_size": (
+            settings["micro_batch_size"]
+            * settings["gradient_accumulation_steps"]
+        ),
+        "settings": settings,
+    }
+
+
+def train(
+    examples: list[dict[str, Any]],
+    settings: dict[str, Any],
+    seed: int,
+) -> dict[str, Any]:
+    try:
+        import torch
+        from peft import LoraConfig, get_peft_model
+        from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup
+    except ImportError as exc:
+        raise RuntimeError(
+            "training dependencies are missing; install requirements-train.txt"
+        ) from exc
+    if not examples:
+        raise ValueError("training data contains no examples")
+    if settings["temperature"] <= 0:
+        raise ValueError("temperature must be positive")
+
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    tokenizer = AutoTokenizer.from_pretrained(
+        settings["model"],
+        padding_side="left",
+        trust_remote_code=True,
+    )
+    model = AutoModel.from_pretrained(
+        settings["model"],
+        torch_dtype="auto",
+        trust_remote_code=True,
+    )
+    if settings["method"] == "lora":
+        model = get_peft_model(
+            model,
+            LoraConfig(
+                task_type="FEATURE_EXTRACTION",
+                r=settings["lora_r"],
+                lora_alpha=settings["lora_alpha"],
+                lora_dropout=settings["lora_dropout"],
+                target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+            ),
+        )
+    elif settings["method"] != "full":
+        raise ValueError("method must be lora or full")
+    if settings["gradient_checkpointing"]:
+        model.gradient_checkpointing_enable()
+        model.config.use_cache = False
+    model.to(device)
+    model.train()
+
+    optimizer = torch.optim.AdamW(
+        (parameter for parameter in model.parameters() if parameter.requires_grad),
+        lr=settings["learning_rate"],
+    )
+    micro_batch = settings["micro_batch_size"]
+    accumulation = settings["gradient_accumulation_steps"]
+    batches_per_epoch = math.ceil(len(examples) / micro_batch)
+    optimizer_steps = math.ceil(batches_per_epoch / accumulation) * settings["epochs"]
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=max(1, int(optimizer_steps * 0.05)),
+        num_training_steps=optimizer_steps,
+    )
+    use_bf16 = (
+        settings["precision"] == "bf16"
+        and device == "cuda"
+        and torch.cuda.is_bf16_supported()
+    )
+    history = []
+    optimizer.zero_grad(set_to_none=True)
+    global_batch = 0
+    rng = random.Random(seed)
+
+    for epoch in range(settings["epochs"]):
+        order = list(range(len(examples)))
+        accumulation_count = 0
+        rng.shuffle(order)
+        for start in range(0, len(order), micro_batch):
+            batch = [examples[index] for index in order[start : start + micro_batch]]
+            queries = [example["query_text"] for example in batch]
+            documents = []
+            positive_indices = []
+            for example in batch:
+                positive_indices.append(len(documents))
+                documents.append(example["positive_text"])
+                documents.extend(example["negative_texts"])
+
+            with torch.autocast(
+                device_type=device,
+                dtype=torch.bfloat16,
+                enabled=use_bf16,
+            ):
+                query_embeddings = _encode_train(
+                    model,
+                    tokenizer,
+                    queries,
+                    settings["query_max_length"],
+                    device,
+                )
+                document_embeddings = _encode_train(
+                    model,
+                    tokenizer,
+                    documents,
+                    settings["skill_max_length"],
+                    device,
+                )
+                loss = info_nce_loss(
+                    query_embeddings,
+                    document_embeddings,
+                    torch.tensor(positive_indices, device=device),
+                    settings["temperature"],
+                )
+            (loss / accumulation).backward()
+            history.append(
+                {
+                    "epoch": epoch + 1,
+                    "batch": global_batch + 1,
+                    "loss": float(loss.detach().cpu()),
+                }
+            )
+            global_batch += 1
+            accumulation_count += 1
+            is_boundary = accumulation_count >= accumulation
+            is_last = start + micro_batch >= len(order)
+            if is_boundary or is_last:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
+                accumulation_count = 0
+
+    output_dir = Path(settings["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    summary = {
+        **summarize_examples(examples, settings),
+        "optimizer_steps": optimizer_steps,
+        "loss_history": history,
+    }
+    (output_dir / "training_summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return summary
+
+
+def _encode_train(
+    model: Any,
+    tokenizer: Any,
+    texts: list[str],
+    max_length: int,
+    device: str,
+) -> Any:
+    encoded = tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        max_length=max_length,
+        return_tensors="pt",
+    )
+    encoded = {key: value.to(device) for key, value in encoded.items()}
+    outputs = model(**encoded)
+    hidden_states = getattr(outputs, "last_hidden_state", outputs[0])
+    return last_token_pool(hidden_states, encoded["attention_mask"])
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    settings = resolve_settings(args)
+    examples = load_examples(args)
+    if args.dry_run:
+        result = summarize_examples(examples, settings)
+    else:
+        result = train(examples, settings, args.seed)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
