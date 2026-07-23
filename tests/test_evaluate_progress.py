@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.evaluate import create_rerank_progress
+from scripts.evaluate import create_rerank_progress, format_retrieval_skill
 
 
 class _RecordingProgress:
@@ -9,6 +9,13 @@ class _RecordingProgress:
 
 
 class EvaluateProgressTests(unittest.TestCase):
+    def test_retrieval_uses_training_skill_caps(self) -> None:
+        skill = {"name": "n", "description": "d" * 400, "body": "b" * 3000}
+
+        self.assertEqual(
+            format_retrieval_skill(skill),
+            f"n | {'d' * 300} | {'b' * 2500}",
+        )
     def test_creates_query_progress_for_reranking(self) -> None:
         progress = create_rerank_progress(
             total_queries=75,

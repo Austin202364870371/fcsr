@@ -67,6 +67,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def format_retrieval_skill(skill: dict[str, Any]) -> str:
+    """Keep retrieval skill text identical to bi-encoder training text."""
+    return format_skill(skill)
+
 def run_retrieve(args: argparse.Namespace) -> dict[str, Any]:
     queries = load_jsonl(args.queries)
     skills = list(stream_jsonl(args.skills))
@@ -80,7 +84,7 @@ def run_retrieve(args: argparse.Namespace) -> dict[str, Any]:
         skill_embeddings = encode_texts(
             model,
             tokenizer,
-            [format_skill(skill, desc_max=500, body_max=8000) for skill in skills],
+            [format_retrieval_skill(skill) for skill in skills],
             args.skill_max_length,
             args.batch_size,
             args.device,
