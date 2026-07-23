@@ -267,37 +267,16 @@ Budget-aware deviations from the paper:
 1. Sample 8,000 positives instead of generating 37,979 synthetic training pairs.
 2. Use LoRA by default while retaining the more expensive full fine-tuning option.
 3. Extract Contracts only for sampled positives; suspicious false-negative pairs are exported for human review instead of invoking another paid LLM judge.
+### Reranker Memory Preflight
 
-### Reranker Memory Preflight and Resume
+Before the training epoch begins, `train_reranker.py train` scans every candidate group, selects the group with the longest tokenized sequence, and runs one forward/backward preflight without updating parameters. After the preflight passes, the training flow is unchanged. If it OOMs, lower `--max-length` and run again.
 
-`train_reranker.py train` scans all candidate groups by default, finds the group with the longest tokenized sequence, and runs one forward/backward memory preflight without updating parameters. A failed preflight exits before the long training epoch starts, rather than failing hours later on a long example.
-
-For a 24GB RTX 4090, keep the Top-20 listwise objective and use a 1536-token limit with resumable checkpoints every 250 groups:
+For a 24GB RTX 4090:
 
 ```bash
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 python -B scripts/train_reranker.py train \
   --model /root/autodl-tmp/models/Qwen3-Reranker-0.6B \
   --output-dir checkpoints/fcsr-rank-0.6b \
-  --max-length 1536 \
-  --checkpoint-every 250
+  --max-length 1536
 ```
-
-A checkpoint is saved only after an optimizer update, at a path such as:
-
-```text
-checkpoints/fcsr-rank-0.6b/resume/epoch-01-step-00256/
-```
-
-It contains the LoRA adapter, optimizer and scheduler state, shuffled epoch order, and the next group position. Resume after OOM or an interrupted instance with:
-
-```bash
-python -B scripts/train_reranker.py train \
-  --model /root/autodl-tmp/models/Qwen3-Reranker-0.6B \
-  --output-dir checkpoints/fcsr-rank-0.6b \
-  --max-length 1536 \
-  --checkpoint-every 250 \
-  --resume-from checkpoints/fcsr-rank-0.6b/resume/epoch-01-step-00256
-```
-
-The model, LoRA settings, learning rate, gradient accumulation, and maximum length must match the checkpoint. Use `--skip-memory-preflight` only for explicit debugging.

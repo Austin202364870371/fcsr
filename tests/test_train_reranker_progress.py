@@ -1,11 +1,10 @@
 import unittest
 
 from scripts.train_reranker import (
-    checkpoint_due,
+    build_parser,
     create_training_progress,
     enable_checkpoint_input_gradients,
     longest_group_index,
-    resume_epoch_position,
 )
 
 
@@ -38,17 +37,7 @@ class RerankerSetupTests(unittest.TestCase):
         self.assertTrue(progress.kwargs["dynamic_ncols"])
         self.assertEqual(model.calls, 1)
 
-    def test_checkpoint_waits_for_optimizer_boundary_after_interval(self) -> None:
-        self.assertFalse(checkpoint_due(250, accumulation_count=10, next_due=250))
-        self.assertTrue(checkpoint_due(256, accumulation_count=0, next_due=250))
-        self.assertFalse(checkpoint_due(249, accumulation_count=0, next_due=250))
-
-    def test_resume_epoch_position_uses_saved_order_only_for_saved_epoch(self) -> None:
-        state = {"epoch": 0, "next_position": 32, "order": [3, 1, 0, 2]}
-        self.assertEqual(resume_epoch_position(state, epoch=0), ([3, 1, 0, 2], 32))
-        self.assertIsNone(resume_epoch_position(state, epoch=1))
-
-    def test_longest_group_index_uses_largest_candidate_length(self) -> None:
+    def test_longest_group_index_reports_each_scanned_group(self) -> None:
         groups = [
             {"candidates": [{"prompt": "tiny"}]},
             {"candidates": [{"prompt": "medium"}, {"prompt": "longest"}]},
@@ -61,6 +50,11 @@ class RerankerSetupTests(unittest.TestCase):
         )
         self.assertEqual((index, length), (1, 7))
         self.assertEqual(processed, [1, 1])
+
+    def test_train_parser_does_not_expose_resume_options(self) -> None:
+        parser = build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["train", "--checkpoint-every", "250"])
 
 
 if __name__ == "__main__":

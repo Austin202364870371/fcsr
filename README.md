@@ -263,37 +263,16 @@ python -B scripts/evaluate.py score \
 1. 分层抽样 8,000 个正例，而不是生成 37,979 个合成训练对。
 2. 默认使用 LoRA，同时保留成本更高的全量微调选项。
 3. Contract 只对抽样正例进行抽取；可疑假负例会导出供人工复核，不再额外调用付费 LLM 自动判断。
+### Reranker 显存预检
 
-### Reranker 的显存预检与断点续训
+`train_reranker.py train` 会在正式训练前扫描所有候选组，选择 token 化后最长的一组完成一次不更新参数的 forward/backward 预检。预检通过后，训练流程与原来一致；若预检 OOM，请降低 `--max-length` 后重新运行。
 
-`train_reranker.py train` 默认先扫描全部候选组，找出 token 化后最长的一组，并执行一次不更新参数的 forward/backward 显存预检。预检失败会在正式训练前退出，因此不会在数小时后才因超长样本 OOM。
-
-对 24GB RTX 4090，推荐保留 Top-20 listwise 训练，并使用 1536 token 上限和每 250 组的可恢复 checkpoint：
+对 24GB RTX 4090，建议：
 
 ```bash
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 python -B scripts/train_reranker.py train \
   --model /root/autodl-tmp/models/Qwen3-Reranker-0.6B \
   --output-dir checkpoints/fcsr-rank-0.6b \
-  --max-length 1536 \
-  --checkpoint-every 250
+  --max-length 1536
 ```
-
-checkpoint 只会在一个梯度累积窗口完成、优化器已经更新后保存，目录形如：
-
-```text
-checkpoints/fcsr-rank-0.6b/resume/epoch-01-step-00256/
-```
-
-其中包含 LoRA adapter、优化器和学习率调度器状态、当前 epoch 的随机顺序及已完成位置。中途发生 OOM 或服务器中断后，从最近 checkpoint 恢复：
-
-```bash
-python -B scripts/train_reranker.py train \
-  --model /root/autodl-tmp/models/Qwen3-Reranker-0.6B \
-  --output-dir checkpoints/fcsr-rank-0.6b \
-  --max-length 1536 \
-  --checkpoint-every 250 \
-  --resume-from checkpoints/fcsr-rank-0.6b/resume/epoch-01-step-00256
-```
-
-恢复时必须保持模型、LoRA、学习率、梯度累积步数和最大长度与 checkpoint 一致。只有明确调试时才使用 `--skip-memory-preflight`。
