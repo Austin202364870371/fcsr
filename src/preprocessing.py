@@ -20,6 +20,7 @@ import numpy as np
 
 from contract_schema import compute_source_hash, validate_contract
 from data_io import stream_jsonl, write_jsonl_atomic
+from retrieval import BM25Index, unicode_tokens
 
 
 _BENCHMARK_ID_FIELDS = (
@@ -1023,7 +1024,7 @@ def mine_local_negatives(
     if stage is not None:
         stage("building_bm25")
     documents = [_skill_search_text(record) for record in pool_records]
-    bm25 = _BM25Index(documents)
+    bm25 = BM25Index(documents)
     stable_pool_order = sorted(
         range(len(pool_records)),
         key=lambda index: pool_records[index]["skill_id"],
@@ -1125,116 +1126,14 @@ def _lazy_random_order(
             yield records[index]
 
 
-class _BM25Index:
-    def __init__(self, documents: list[str], k1: float = 1.5, b: float = 0.75) -> None:
-        self.k1 = k1
-        self.b = b
-        tokenized = [_unicode_tokens(document) for document in documents]
-        self.lengths = np.asarray([len(document) for document in tokenized], dtype=np.float32)
-        self.average_length = float(self.lengths.mean()) if len(self.lengths) else 0.0
-        raw_postings: dict[str, list[tuple[int, int]]] = defaultdict(list)
-        for document_index, document in enumerate(tokenized):
-            frequencies: dict[str, int] = defaultdict(int)
-            for token in document:
-                frequencies[token] += 1
-            for token, frequency in frequencies.items():
-                raw_postings[token].append((document_index, frequency))
-        count = len(tokenized)
-        self.postings = {}
-        self.idf = {}
-        for token, values in raw_postings.items():
-            self.postings[token] = (
-                np.asarray([item[0] for item in values], dtype=np.int64),
-                np.asarray([item[1] for item in values], dtype=np.float32),
-            )
-            frequency = len(values)
-            self.idf[token] = math.log(
-                1 + (count - frequency + 0.5) / (frequency + 0.5)
-            )
-
-    def rank(self, query: str, limit: int) -> tuple[np.ndarray, list[int]]:
-        scores = np.zeros(len(self.lengths), dtype=np.float32)
-        query_frequencies: dict[str, int] = defaultdict(int)
-        for token in _unicode_tokens(query):
-            query_frequencies[token] += 1
-        for token, query_frequency in query_frequencies.items():
-            posting = self.postings.get(token)
-            if posting is None:
-                continue
-            indices, frequencies = posting
-            normalization = (
-                1 - self.b + self.b * self.lengths[indices] / self.average_length
-                if self.average_length
-                else 1.0
-            )
-            denominator = frequencies + self.k1 * normalization
-            scores[indices] += (
-                query_frequency
-                * self.idf[token]
-                * frequencies
-                * (self.k1 + 1)
-                / denominator
-            )
-        positive = np.flatnonzero(scores > 0)
-        if len(positive) > limit:
-            local = np.argpartition(-scores[positive], limit - 1)[:limit]
-            positive = positive[local]
-        ordered = sorted(positive.tolist(), key=lambda index: (-scores[index], index))
-        return scores, ordered
-
-def _unicode_tokens(text: str) -> list[str]:
-    normalized = text.casefold()
-    tokens: list[str] = []
-    word: list[str] = []
-    cjk_run: list[str] = []
-
-    def flush_word() -> None:
-        if word:
-            tokens.append("".join(word))
-            word.clear()
-
-    def flush_cjk() -> None:
-        if cjk_run:
-            tokens.extend(cjk_run)
-            tokens.extend(
-                "".join(cjk_run[index : index + 2])
-                for index in range(len(cjk_run) - 1)
-            )
-            cjk_run.clear()
-
-    for character in normalized:
-        if _is_cjk(character):
-            flush_word()
-            cjk_run.append(character)
-        elif character.isalnum():
-            flush_cjk()
-            word.append(character)
-        else:
-            flush_word()
-            flush_cjk()
-    flush_word()
-    flush_cjk()
-    return tokens
-
-
-def _is_cjk(character: str) -> bool:
-    return (
-        "\u3400" <= character <= "\u4dbf"
-        or "\u4e00" <= character <= "\u9fff"
-        or "\u3040" <= character <= "\u30ff"
-        or "\uac00" <= character <= "\ud7af"
-    )
-
-
 def _skill_search_text(skill: dict[str, Any]) -> str:
     return "\n".join(
         str(skill.get(field, ""))
         for field in ("name", "description", "body")
     )
 
-
 def _normalize_text(text: str) -> str:
-    return " ".join(_unicode_tokens(text))
+    return " ".join(unicode_tokens(text))
 
 
 def _character_trigrams(text: str) -> set[str]:

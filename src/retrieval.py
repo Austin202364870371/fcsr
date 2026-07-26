@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import math
+from collections import defaultdict
+
 import numpy as np
 
 
@@ -13,6 +16,152 @@ class EmbeddingFilterResult:
     kept: list[dict[str, Any]]
     removed: list[dict[str, Any]]
 
+
+class BM25Index:
+    """Deterministic Unicode-aware BM25 index shared by mining and evaluation."""
+
+    def __init__(
+        self,
+        documents: list[str],
+        k1: float = 1.5,
+        b: float = 0.75,
+        progress: Callable[[int], None] | None = None,
+    ) -> None:
+        self.k1 = k1
+        self.b = b
+        tokenized = []
+        for document in documents:
+            tokenized.append(unicode_tokens(document))
+            if progress is not None:
+                progress(1)
+        self.lengths = np.asarray([len(document) for document in tokenized], dtype=np.float32)
+        self.average_length = float(self.lengths.mean()) if len(self.lengths) else 0.0
+        raw_postings: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        for document_index, document in enumerate(tokenized):
+            frequencies: dict[str, int] = defaultdict(int)
+            for token in document:
+                frequencies[token] += 1
+            for token, frequency in frequencies.items():
+                raw_postings[token].append((document_index, frequency))
+        count = len(tokenized)
+        self.postings: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self.idf: dict[str, float] = {}
+        for token, values in raw_postings.items():
+            self.postings[token] = (
+                np.asarray([item[0] for item in values], dtype=np.int64),
+                np.asarray([item[1] for item in values], dtype=np.float32),
+            )
+            frequency = len(values)
+            self.idf[token] = math.log(
+                1 + (count - frequency + 0.5) / (frequency + 0.5)
+            )
+
+    def rank(self, query: str, limit: int) -> tuple[np.ndarray, list[int]]:
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        scores = np.zeros(len(self.lengths), dtype=np.float32)
+        query_frequencies: dict[str, int] = defaultdict(int)
+        for token in unicode_tokens(query):
+            query_frequencies[token] += 1
+        for token, query_frequency in query_frequencies.items():
+            posting = self.postings.get(token)
+            if posting is None:
+                continue
+            indices, frequencies = posting
+            normalization = (
+                1 - self.b + self.b * self.lengths[indices] / self.average_length
+                if self.average_length
+                else 1.0
+            )
+            denominator = frequencies + self.k1 * normalization
+            scores[indices] += (
+                query_frequency
+                * self.idf[token]
+                * frequencies
+                * (self.k1 + 1)
+                / denominator
+            )
+        positive = np.flatnonzero(scores > 0)
+        if len(positive) > limit:
+            local = np.argpartition(-scores[positive], limit - 1)[:limit]
+            positive = positive[local]
+        ordered = sorted(positive.tolist(), key=lambda index: (-scores[index], index))
+        return scores, ordered
+
+    def topk(self, query: str, k: int) -> tuple[np.ndarray, list[int]]:
+        if k <= 0:
+            raise ValueError("k must be positive")
+        k = min(k, len(self.lengths))
+        scores, ordered = self.rank(query, limit=k)
+        seen = set(ordered)
+        ordered.extend(index for index in range(len(self.lengths)) if index not in seen)
+        return scores, ordered[:k]
+
+
+def reciprocal_rank_fusion(
+    rankings: list[list[str]],
+    top_k: int,
+    rrf_k: int = 60,
+) -> list[dict[str, float | str]]:
+    if top_k <= 0 or rrf_k < 0:
+        raise ValueError("top_k must be positive and rrf_k must be non-negative")
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        seen: set[str] = set()
+        for rank, skill_id in enumerate(ranking, start=1):
+            if skill_id in seen:
+                continue
+            seen.add(skill_id)
+            scores[skill_id] = scores.get(skill_id, 0.0) + 1.0 / (rrf_k + rank)
+    ordered = sorted(scores, key=lambda skill_id: (-scores[skill_id], skill_id))
+    return [
+        {"skill_id": skill_id, "rrf_score": scores[skill_id]}
+        for skill_id in ordered[:top_k]
+    ]
+
+
+def unicode_tokens(text: str) -> list[str]:
+    normalized = text.casefold()
+    tokens: list[str] = []
+    word: list[str] = []
+    cjk_run: list[str] = []
+
+    def flush_word() -> None:
+        if word:
+            tokens.append("".join(word))
+            word.clear()
+
+    def flush_cjk() -> None:
+        if cjk_run:
+            tokens.extend(cjk_run)
+            tokens.extend(
+                "".join(cjk_run[index : index + 2])
+                for index in range(len(cjk_run) - 1)
+            )
+            cjk_run.clear()
+
+    for character in normalized:
+        if _is_cjk(character):
+            flush_word()
+            cjk_run.append(character)
+        elif character.isalnum():
+            flush_cjk()
+            word.append(character)
+        else:
+            flush_word()
+            flush_cjk()
+    flush_word()
+    flush_cjk()
+    return tokens
+
+
+def _is_cjk(character: str) -> bool:
+    return (
+        "\u3400" <= character <= "\u4dbf"
+        or "\u4e00" <= character <= "\u9fff"
+        or "\u3040" <= character <= "\u30ff"
+        or "\uac00" <= character <= "\ud7af"
+    )
 
 def semantic_topk(
     query_embeddings: np.ndarray,

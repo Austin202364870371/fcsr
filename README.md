@@ -221,6 +221,55 @@ python -B scripts/train_reranker.py train \
 
 Listwise Loss 会将概率质量分配给候选组中的全部有效正例，并拒绝不包含任何正例的候选组。
 
+## 10.1 无需训练的检索 Baseline
+
+以下三条 baseline 与 FCSR 使用完全相同的 75 个任务、Easy/Hard 候选池和 `description=300`、`body=2500` 的 Skill 截断。每个方法使用独立报告目录，避免 summary 被覆盖。
+
+```bash
+mkdir -p reports/baselines/{bm25,dense,hybrid}
+
+for tier in easy hard; do
+  python -B scripts/evaluate.py bm25 \
+    --queries data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl --top-k 50 \
+    --output-predictions reports/baselines/bm25/retrieval_${tier}.json \
+    --output-records reports/baselines/bm25/retrieval_${tier}.jsonl
+  python -B scripts/evaluate.py score \
+    --tasks data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --predictions reports/baselines/bm25/retrieval_${tier}.json \
+    --stage retrieval --tier ${tier} --output-dir reports/baselines/bm25
+
+  python -B scripts/evaluate.py retrieve \
+    --queries data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
+    --top-k 50 --batch-size 8 --skill-max-length 2048 \
+    --output-predictions reports/baselines/dense/retrieval_${tier}.json \
+    --output-records reports/baselines/dense/retrieval_${tier}.jsonl
+  python -B scripts/evaluate.py score \
+    --tasks data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --predictions reports/baselines/dense/retrieval_${tier}.json \
+    --stage retrieval --tier ${tier} --output-dir reports/baselines/dense
+
+  python -B scripts/evaluate.py hybrid \
+    --queries data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
+    --top-k 50 --fusion-depth 100 --rrf-k 60 \
+    --batch-size 8 --skill-max-length 2048 \
+    --output-predictions reports/baselines/hybrid/retrieval_${tier}.json \
+    --output-records reports/baselines/hybrid/retrieval_${tier}.jsonl
+  python -B scripts/evaluate.py score \
+    --tasks data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --predictions reports/baselines/hybrid/retrieval_${tier}.json \
+    --stage retrieval --tier ${tier} --output-dir reports/baselines/hybrid
+done
+```
+
+BM25 不使用 GPU；Dense 与 Hybrid 使用基础 Qwen3-Embedding-0.6B，不加载任何 FCSR LoRA。Hybrid 通过固定的 reciprocal-rank fusion（`RRF k=60`）融合 BM25 与 Dense 的各自 Top-100 排名；该参数不在 75 条测试任务上调优。
 ## 11. 在 Easy 和 Hard 技能池上评测
 
 每个技能池都需要先导出检索 Top-50，再重排前 20 个候选，最后计算指标。以下为 Easy 技能池示例：

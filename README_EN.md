@@ -225,6 +225,55 @@ python -B scripts/train_reranker.py train \
 
 The listwise loss assigns probability mass to all valid positives in a group and rejects groups with no positive.
 
+## 10.1 No-Training Retrieval Baselines
+
+The following baselines use the same 75 tasks, Easy/Hard pools, and `description=300`, `body=2500` Skill caps as FCSR. Each method writes to its own report directory so summary files cannot overwrite one another.
+
+```bash
+mkdir -p reports/baselines/{bm25,dense,hybrid}
+
+for tier in easy hard; do
+  python -B scripts/evaluate.py bm25 \
+    --queries data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl --top-k 50 \
+    --output-predictions reports/baselines/bm25/retrieval_${tier}.json \
+    --output-records reports/baselines/bm25/retrieval_${tier}.jsonl
+  python -B scripts/evaluate.py score \
+    --tasks data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --predictions reports/baselines/bm25/retrieval_${tier}.json \
+    --stage retrieval --tier ${tier} --output-dir reports/baselines/bm25
+
+  python -B scripts/evaluate.py retrieve \
+    --queries data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
+    --top-k 50 --batch-size 8 --skill-max-length 2048 \
+    --output-predictions reports/baselines/dense/retrieval_${tier}.json \
+    --output-records reports/baselines/dense/retrieval_${tier}.jsonl
+  python -B scripts/evaluate.py score \
+    --tasks data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --predictions reports/baselines/dense/retrieval_${tier}.json \
+    --stage retrieval --tier ${tier} --output-dir reports/baselines/dense
+
+  python -B scripts/evaluate.py hybrid \
+    --queries data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
+    --top-k 50 --fusion-depth 100 --rrf-k 60 \
+    --batch-size 8 --skill-max-length 2048 \
+    --output-predictions reports/baselines/hybrid/retrieval_${tier}.json \
+    --output-records reports/baselines/hybrid/retrieval_${tier}.jsonl
+  python -B scripts/evaluate.py score \
+    --tasks data/raw/evaluation_queries.jsonl \
+    --skills data/raw/skills_${tier}.jsonl \
+    --predictions reports/baselines/hybrid/retrieval_${tier}.json \
+    --stage retrieval --tier ${tier} --output-dir reports/baselines/hybrid
+done
+```
+
+BM25 does not use a GPU. Dense and Hybrid use the base Qwen3-Embedding-0.6B model with no FCSR LoRA. Hybrid combines each method's Top-100 rankings with fixed reciprocal-rank fusion (`RRF k=60`); this parameter is not tuned on the 75 test tasks.
 ## 11. Evaluate Easy and Hard
 
 For each pool, export retrieval Top-50, rerank its first 20 candidates, and then score the predictions. Example for Easy:

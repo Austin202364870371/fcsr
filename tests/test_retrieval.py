@@ -3,8 +3,10 @@ import unittest
 import numpy as np
 
 from retrieval import (
+    BM25Index,
     embedding_false_negative_filter,
     merge_negative_sources,
+    reciprocal_rank_fusion,
     semantic_topk,
 )
 
@@ -103,6 +105,25 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(result.removed[0]["reason"], "high_embedding_similarity")
         self.assertGreater(result.removed[0]["score"], 0.95)
 
+
+    def test_bm25_topk_pads_zero_score_candidates_deterministically(self) -> None:
+        index = BM25Index(["alpha", "beta alpha", "gamma"])
+
+        scores, ranked = index.topk("alpha", k=3)
+
+        self.assertEqual(ranked, [0, 1, 2])
+        self.assertGreater(scores[0], scores[1])
+        self.assertEqual(scores[2], 0.0)
+
+    def test_reciprocal_rank_fusion_combines_rankings(self) -> None:
+        fused = reciprocal_rank_fusion(
+            [["a", "b", "c"], ["b", "c", "a"]],
+            top_k=3,
+            rrf_k=60,
+        )
+
+        self.assertEqual([item["skill_id"] for item in fused], ["b", "a", "c"])
+        self.assertGreater(fused[0]["rrf_score"], fused[-1]["rrf_score"])
 
 if __name__ == "__main__":
     unittest.main()

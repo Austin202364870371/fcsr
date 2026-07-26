@@ -1,6 +1,11 @@
+import json
+import tempfile
 import unittest
+from argparse import Namespace
+from pathlib import Path
 
 from evaluation import evaluate_predictions
+from scripts.evaluate import build_parser, run_bm25
 
 
 class EvaluationTests(unittest.TestCase):
@@ -59,5 +64,62 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(result.details[0]["ranked_skill_ids"], ["degraded", "p1"])
 
 
+
+    def test_bm25_exports_standard_retrieval_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            queries = root / "queries.jsonl"
+            skills = root / "skills.jsonl"
+            predictions = root / "predictions.json"
+            records = root / "records.jsonl"
+            queries.write_text(
+                json.dumps({"query_id": "q1", "query": "alpha"}) + "\n",
+                encoding="utf-8",
+            )
+            skills.write_text(
+                "\n".join(
+                    json.dumps(item)
+                    for item in (
+                        {"skill_id": "alpha", "name": "alpha", "description": "", "body": ""},
+                        {"skill_id": "beta", "name": "beta", "description": "", "body": ""},
+                    )
+                ) + "\n",
+                encoding="utf-8",
+            )
+
+            result = run_bm25(
+                Namespace(
+                    queries=str(queries),
+                    skills=str(skills),
+                    output_predictions=str(predictions),
+                    output_records=str(records),
+                    top_k=2,
+                )
+            )
+
+            self.assertEqual(result["top_k"], 2)
+            self.assertEqual(json.loads(predictions.read_text(encoding="utf-8"))["q1"][0], "alpha")
+            record = json.loads(records.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(record["retrieved_candidates"][0]["skill_id"], "alpha")
+    def test_parser_accepts_bm25_and_hybrid_retrieval_baselines(self) -> None:
+        parser = build_parser()
+        bm25 = parser.parse_args(
+            [
+                "bm25", "--queries", "tasks.jsonl", "--skills", "skills.jsonl",
+                "--output-predictions", "bm25.json", "--output-records", "bm25.jsonl",
+            ]
+        )
+        hybrid = parser.parse_args(
+            [
+                "hybrid", "--queries", "tasks.jsonl", "--skills", "skills.jsonl",
+                "--model", "Qwen/Qwen3-Embedding-0.6B",
+                "--output-predictions", "hybrid.json", "--output-records", "hybrid.jsonl",
+            ]
+        )
+
+        self.assertEqual(bm25.command, "bm25")
+        self.assertEqual(bm25.top_k, 50)
+        self.assertEqual(hybrid.command, "hybrid")
+        self.assertEqual(hybrid.fusion_depth, 100)
 if __name__ == "__main__":
     unittest.main()

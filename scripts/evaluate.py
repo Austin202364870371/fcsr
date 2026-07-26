@@ -27,7 +27,7 @@ from modeling import (
     load_embedding_model,
     tokenize_reranker_text,
 )
-from retrieval import semantic_topk
+from retrieval import BM25Index, reciprocal_rank_fusion, semantic_topk
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,6 +46,26 @@ def build_parser() -> argparse.ArgumentParser:
     retrieve.add_argument("--skill-max-length", type=int, default=4096)
     retrieve.add_argument("--device", default="cuda")
 
+    bm25 = commands.add_parser("bm25", help="export flat BM25 Top-K")
+    bm25.add_argument("--queries", required=True)
+    bm25.add_argument("--skills", required=True)
+    bm25.add_argument("--output-predictions", required=True)
+    bm25.add_argument("--output-records", required=True)
+    bm25.add_argument("--top-k", type=int, default=50)
+
+    hybrid = commands.add_parser("hybrid", help="export BM25+dense RRF Top-K")
+    hybrid.add_argument("--queries", required=True)
+    hybrid.add_argument("--skills", required=True)
+    hybrid.add_argument("--model", required=True)
+    hybrid.add_argument("--output-predictions", required=True)
+    hybrid.add_argument("--output-records", required=True)
+    hybrid.add_argument("--top-k", type=int, default=50)
+    hybrid.add_argument("--fusion-depth", type=int, default=100)
+    hybrid.add_argument("--rrf-k", type=int, default=60)
+    hybrid.add_argument("--batch-size", type=int, default=8)
+    hybrid.add_argument("--query-max-length", type=int, default=512)
+    hybrid.add_argument("--skill-max-length", type=int, default=2048)
+    hybrid.add_argument("--device", default="cuda")
     rerank = commands.add_parser("rerank", help="rerank exported candidates")
     rerank.add_argument("--retrieval-records", required=True)
     rerank.add_argument("--skills", required=True)
@@ -153,6 +173,165 @@ def run_retrieve(args: argparse.Namespace) -> dict[str, Any]:
         "records": args.output_records,
     }
 
+
+def run_bm25(args: argparse.Namespace) -> dict[str, Any]:
+    queries = load_jsonl(args.queries)
+    skills = list(stream_jsonl(args.skills))
+    with tqdm(
+        total=len(skills),
+        desc="BM25: indexing skills",
+        unit="skill",
+        dynamic_ncols=True,
+    ) as progress:
+        index = BM25Index(
+            [format_retrieval_skill(skill) for skill in skills],
+            progress=progress.update,
+        )
+    candidate_lists = []
+    with tqdm(
+        total=len(queries),
+        desc="BM25: scoring queries",
+        unit="query",
+        dynamic_ncols=True,
+    ) as progress:
+        for query in queries:
+            scores, indices = index.topk(_query_text(query), args.top_k)
+            candidate_lists.append(
+                [
+                    {
+                        "skill_id": skills[index]["skill_id"],
+                        "score": float(scores[index]),
+                        "rank": rank,
+                    }
+                    for rank, index in enumerate(indices, start=1)
+                ]
+            )
+            progress.update(1)
+    return _write_retrieval_outputs(args, queries, skills, candidate_lists)
+
+
+def run_hybrid(args: argparse.Namespace) -> dict[str, Any]:
+    if args.fusion_depth < args.top_k:
+        raise ValueError("fusion_depth must be greater than or equal to top_k")
+    queries = load_jsonl(args.queries)
+    skills = list(stream_jsonl(args.skills))
+    model, tokenizer = load_embedding_model(args.model, args.device)
+    with tqdm(
+        total=len(skills),
+        desc="Hybrid: encoding skills",
+        unit="skill",
+        dynamic_ncols=True,
+    ) as progress:
+        skill_embeddings = encode_texts(
+            model,
+            tokenizer,
+            [format_retrieval_skill(skill) for skill in skills],
+            args.skill_max_length,
+            args.batch_size,
+            args.device,
+            progress=progress.update,
+        )
+    with tqdm(
+        total=len(queries),
+        desc="Hybrid: encoding queries",
+        unit="query",
+        dynamic_ncols=True,
+    ) as progress:
+        query_embeddings = encode_texts(
+            model,
+            tokenizer,
+            [format_query(_query_text(query)) for query in queries],
+            args.query_max_length,
+            args.batch_size,
+            args.device,
+            progress=progress.update,
+        )
+    with tqdm(
+        total=len(skills),
+        desc="Hybrid: indexing BM25",
+        unit="skill",
+        dynamic_ncols=True,
+    ) as progress:
+        index = BM25Index(
+            [format_retrieval_skill(skill) for skill in skills],
+            progress=progress.update,
+        )
+    depth = min(args.fusion_depth, len(skills))
+    with tqdm(
+        total=len(queries),
+        desc="Hybrid: dense scoring queries",
+        unit="query",
+        dynamic_ncols=True,
+    ) as progress:
+        dense_indices, _ = semantic_topk(
+            query_embeddings,
+            skill_embeddings,
+            depth,
+            device=args.device,
+            progress=progress.update,
+        )
+    candidate_lists = []
+    with tqdm(
+        total=len(queries),
+        desc="Hybrid: fusing rankings",
+        unit="query",
+        dynamic_ncols=True,
+    ) as progress:
+        for row, query in enumerate(queries):
+            _, lexical_indices = index.topk(_query_text(query), depth)
+            dense_ranking = [skills[index]["skill_id"] for index in dense_indices[row]]
+            lexical_ranking = [skills[index]["skill_id"] for index in lexical_indices]
+            fused = reciprocal_rank_fusion(
+                [lexical_ranking, dense_ranking],
+                top_k=args.top_k,
+                rrf_k=args.rrf_k,
+            )
+            candidate_lists.append(
+                [
+                    {
+                        "skill_id": item["skill_id"],
+                        "score": float(item["rrf_score"]),
+                        "rrf_score": float(item["rrf_score"]),
+                        "rank": rank,
+                    }
+                    for rank, item in enumerate(fused, start=1)
+                ]
+            )
+            progress.update(1)
+    return _write_retrieval_outputs(args, queries, skills, candidate_lists)
+
+
+def _write_retrieval_outputs(
+    args: argparse.Namespace,
+    queries: list[dict[str, Any]],
+    skills: list[dict[str, Any]],
+    candidate_lists: list[list[dict[str, Any]]],
+) -> dict[str, Any]:
+    if len(queries) != len(candidate_lists):
+        raise ValueError("candidate_lists must contain one list per query")
+    records = []
+    predictions = {}
+    for query, candidates in zip(queries, candidate_lists):
+        query_id = _query_id(query)
+        predictions[query_id] = [item["skill_id"] for item in candidates]
+        records.append(
+            {
+                "query_id": query_id,
+                "query": _query_text(query),
+                "positive_skill_id": query.get("positive_skill_id"),
+                "positive_skill_ids": sorted(_positive_ids(query)),
+                "retrieved_candidates": candidates,
+            }
+        )
+    _write_json(args.output_predictions, predictions)
+    write_jsonl_atomic(args.output_records, records)
+    return {
+        "queries": len(queries),
+        "pool_size": len(skills),
+        "top_k": min(args.top_k, len(skills)),
+        "predictions": args.output_predictions,
+        "records": args.output_records,
+    }
 
 def run_rerank(args: argparse.Namespace) -> dict[str, Any]:
     records = load_jsonl(args.retrieval_records)
@@ -365,6 +544,10 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.command == "retrieve":
         result = run_retrieve(args)
+    elif args.command == "bm25":
+        result = run_bm25(args)
+    elif args.command == "hybrid":
+        result = run_hybrid(args)
     elif args.command == "rerank":
         result = run_rerank(args)
     else:
