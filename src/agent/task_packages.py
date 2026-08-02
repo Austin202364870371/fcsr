@@ -27,6 +27,9 @@ class PlanningAudit(BaseModel):
     status: PlanningStatus
     planning_ready: bool
     task_root: str
+    source_path: str = ""
+    expected_stratum: str = ""
+    estimated_context_bytes: int = Field(default=0, ge=0)
     file_count: int = Field(ge=0)
     downloaded_bytes: int = Field(ge=0)
     prohibited_paths: tuple[str, ...] = ()
@@ -37,6 +40,7 @@ class TaskSyncManifest(BaseModel):
 
     repository: str
     revision: str
+    catalog_commit: str = ""
     packages_root: str
     ready: bool
     tasks: tuple[PlanningAudit, ...]
@@ -114,13 +118,20 @@ def sync_task_packages(
         local_dir=str(packages_root),
     )
     audits = tuple(
-        audit_planning_environment(task.source_task_id, packages_root)
+        audit_planning_environment(task.source_task_id, packages_root).model_copy(
+            update={
+                "source_path": task.source_path,
+                "expected_stratum": task.stratum,
+                "estimated_context_bytes": task.estimated_context_bytes,
+            }
+        )
         for task in catalog.tasks
     )
     return TaskSyncManifest(
         repository=catalog.huggingface_repo,
         revision=selected_revision,
         packages_root=str(packages_root),
+        catalog_commit=catalog.github_commit,
         ready=all(audit.planning_ready for audit in audits),
         tasks=audits,
     )
