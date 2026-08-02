@@ -1,0 +1,23 @@
+{
+  "tasks": [
+    {
+      "task_id": "uppercase-1",
+      "task": "Convert hello agent to uppercase.",
+      "ranked_skill_ids": ["text/uppercase", "data/extract-json-key"],
+      "selector_arguments": {"text": "hello agent"},
+      "verifier_id": "exact",
+      "expected": "HELLO AGENT"
+    },
+    {
+      "task_id": "json-key-1",
+      "task": "Extract the project field from the supplied JSON object.",
+      "ranked_skill_ids": ["data/extract-json-key", "text/uppercase"],
+      "selector_arguments": {
+        "text": "{\"project\": \"fcsr\", \"stage\": 1}",
+        "key": "project"
+      },
+      "verifier_id": "exact",
+      "expected": "fcsr"
+    }
+  ]
+}
