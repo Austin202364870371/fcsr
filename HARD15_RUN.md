@@ -71,10 +71,10 @@ SkillsBench 每个任务的 verifier 在隔离任务环境中检查最终文件�
 领域约束；测试通过比例或布尔结果写成 reward。它是 outcome-based，不要求
 Agent 采用 oracle 的步骤。
 
-本项目 `src/agent/verifiers.py` 的 `exact` 和 `contains_keys` 只服务于早期本地
-单元测试，现有 runtime 也只调用一个工具一次，不能证明这 15 个复杂任务已经
-完成。因此本阶段能真实跑通 45 个规划请求和规划指标，但不能跑出可信的
-SkillsBench 任务成功率。下一阶段必须下载完整 environment/verifier，并接入
+早期本地玩具 verifier（`exact`、`contains_keys`）和单工具 runtime 已移除，避免
+它们被误当作对复杂任务完成情况的验证。因此本阶段能真实跑通 45 个规划请求和
+规划指标，但不能跑出可信的 SkillsBench 任务成功率。下一阶段必须下载完整
+environment/verifier，并接入
 沙箱执行循环后再报告 verifier reward。
 
 ## 实现依据
