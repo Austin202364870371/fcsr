@@ -37,6 +37,8 @@ class FirstRankedSelector:
         if not bundle.skills:
             return None
         skill = bundle.skills[0]
+        if skill.tool_name is None:
+            return None
         arguments = self._argument_builder(task, skill)
         if not isinstance(arguments, Mapping):
             raise ValueError("selector arguments must be an object")

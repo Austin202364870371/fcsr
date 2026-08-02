@@ -17,9 +17,10 @@ class SkillCandidate(FrozenModel):
     skill_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     description: str = ""
+    body: str = ""
     rank: int = Field(ge=1)
     score: float
-    tool_name: str = Field(min_length=1)
+    tool_name: str | None = Field(default=None, min_length=1)
     category_path: tuple[str, ...] = ()
     metadata: dict[str, Any] = Field(default_factory=dict)
 

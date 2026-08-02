@@ -49,7 +49,8 @@ def organization_stats(bundle: SkillBundle) -> OrganizationStats:
 
 
 def _render_skill(skill: SkillCandidate, prefix: str) -> str:
+    binding = f"tool={skill.tool_name}" if skill.tool_name else "instruction-only"
     return (
         f"{prefix} `{skill.skill_id}` ({skill.name}) — {skill.description} "
-        f"[tool={skill.tool_name}; retrieval_rank={skill.rank}]"
+        f"[{binding}; retrieval_rank={skill.rank}]"
     )

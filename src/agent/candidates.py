@@ -39,14 +39,17 @@ def adapt_ranked_candidates(
         if source is None:
             raise CandidateAdapterError(f"missing skill definition: {skill_id}")
         tool_name = source.get("tool_name")
-        if not isinstance(tool_name, str) or not tool_name:
-            raise CandidateAdapterError(f"skill {skill_id} has no executable tool_name")
+        if tool_name is not None and (
+            not isinstance(tool_name, str) or not tool_name
+        ):
+            raise CandidateAdapterError(f"skill {skill_id} has invalid tool_name")
 
         candidates.append(
             SkillCandidate(
                 skill_id=skill_id,
                 name=_string_field(source, "name", default=skill_id),
                 description=_string_field(source, "description", default=""),
+                body=_string_field(source, "body", default=""),
                 rank=rank,
                 score=1.0 / rank,
                 tool_name=tool_name,
