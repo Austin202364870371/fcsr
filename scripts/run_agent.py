@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from typing import Any
 
 from agent.candidates import adapt_ranked_candidates
+from agent.local_tasks import (
+    default_tools,
+    index_skills,
+    load_object_list,
+    required_string,
+)
 from agent.organizers import FlatOrganizer
 from agent.runtime import FlatSkillAgent
 from agent.selectors import FirstRankedSelector
-from agent.tools import ToolRegistry
 from agent.verifiers import VerifierRegistry
 from data_io import write_jsonl_atomic
 
@@ -28,10 +32,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    skills = _load_object_list(args.skills, "skills")
-    tasks = _load_object_list(args.tasks, "tasks")
-    skill_index = _index_skills(skills)
-    tools = _default_tools()
+    skills = load_object_list(args.skills, "skills")
+    tasks = load_object_list(args.tasks, "tasks")
+    skill_index = index_skills(skills)
+    tools = default_tools()
     verifiers = VerifierRegistry.with_defaults()
     records: list[dict[str, Any]] = []
 
@@ -54,10 +58,10 @@ def main(argv: list[str] | None = None) -> int:
             verifiers=verifiers,
         )
         result = agent.run(
-            task_id=_required_string(task_record, "task_id"),
-            task=_required_string(task_record, "task"),
+            task_id=required_string(task_record, "task_id"),
+            task=required_string(task_record, "task"),
             candidates=candidates,
-            verifier_id=_required_string(task_record, "verifier_id"),
+            verifier_id=required_string(task_record, "verifier_id"),
             expected=task_record.get("expected"),
         )
         records.append(result.model_dump(mode="json"))
@@ -67,61 +71,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Agent tasks: {verified}/{len(records)} verified")
     print(f"Records: {args.output}")
     return 0 if verified == len(records) else 1
-
-
-def _default_tools() -> ToolRegistry:
-    registry = ToolRegistry()
-    registry.register("uppercase", _uppercase)
-    registry.register("extract_json_key", _extract_json_key)
-    return registry
-
-
-def _uppercase(text: str) -> str:
-    if not isinstance(text, str):
-        raise TypeError("text must be a string")
-    return text.upper()
-
-
-def _extract_json_key(text: str, key: str) -> Any:
-    if not isinstance(text, str) or not isinstance(key, str):
-        raise TypeError("text and key must be strings")
-    value = json.loads(text)
-    if not isinstance(value, dict):
-        raise ValueError("JSON root must be an object")
-    if key not in value:
-        raise KeyError(key)
-    return value[key]
-
-
-def _load_object_list(path: Path, field: str) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8-sig") as handle:
-        payload = json.load(handle)
-    if not isinstance(payload, dict) or set(payload) != {field}:
-        raise ValueError(f"{path} must contain exactly the top-level field {field!r}")
-    records = payload[field]
-    if not isinstance(records, list) or any(
-        not isinstance(record, dict) for record in records
-    ):
-        raise ValueError(f"{path}:{field} must be a list of objects")
-    return records
-
-
-def _index_skills(skills: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    index: dict[str, dict[str, Any]] = {}
-    for skill in skills:
-        skill_id = _required_string(skill, "skill_id")
-        if skill_id in index:
-            raise ValueError(f"duplicate skill_id: {skill_id}")
-        index[skill_id] = skill
-    return index
-
-
-def _required_string(record: dict[str, Any], field: str) -> str:
-    value = record.get(field)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
