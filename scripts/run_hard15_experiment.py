@@ -18,7 +18,7 @@ from agent.hard15_experiment import (
 from agent.hard15_organizations import organize_task
 from agent.hard15_pilot import Hard15Evaluation, Hard15Task, prepare_fixed_hard15
 from agent.hard15_planning import PlanningAttempt, failed_attempt, plan_organized_task
-from agent.planning import DeepSeekPlanningClient
+from agent.llm import DeepSeekPlanningClient
 from agent.task_catalog import load_pilot_catalog
 from agent.task_packages import TaskSyncManifest, default_snapshot_downloader, sync_task_packages
 from data_io import stream_jsonl, write_jsonl_atomic

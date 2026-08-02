@@ -8,7 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.hard15_organizations import OrganizedTask
-from agent.planning import PlanningClient, SkillPlan
+from agent.llm import PlanningClient, SkillPlan
 
 
 class PlanningAttempt(BaseModel):

@@ -3,7 +3,7 @@ import unittest
 from agent.hard15_experiment import evaluate_attempts, experiment_fingerprint
 from agent.hard15_pilot import Hard15Evaluation
 from agent.hard15_planning import PlanningAttempt
-from agent.planning import PlanStep, SkillPlan
+from agent.llm import PlanStep, SkillPlan
 
 
 class Hard15ExperimentTests(unittest.TestCase):
