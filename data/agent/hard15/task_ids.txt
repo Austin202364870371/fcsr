@@ -1,0 +1,15 @@
+jax-computing-basics
+dialogue-parser
+econ-detrending-correlation
+citation-check
+enterprise-information-search
+flood-risk-analysis
+syzkaller-ppdev-syzlang
+manufacturing-fjsp-optimization
+threejs-to-obj
+threejs-structure-parser
+setup-fuzzing-py
+suricata-custom-exfil
+powerlifting-coef-calc
+xlsx-recover-data
+parallel-tfidf-search
