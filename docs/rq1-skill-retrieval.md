@@ -19,7 +19,7 @@
 
 ## 多 Skill 扩展
 
-`data/synthetic/compositional_v1/` 已保存 497 个有向 pair 与 51 个 triple。候选只在有效 Contract、有效单 Skill query、非 benchmark、artifact 输出到必需输入交接和操作互补同时成立时保留；22,635 个拒绝项保留原因。下一阶段 LLM 只可把已验证候选写成任务、子任务和依赖，不能自行发明组合。
+`data/synthetic/compositional_v1/` 已保存 497 个有向 pair 与 51 个 triple。候选只在有效 Contract、有效单 Skill query、非 benchmark、artifact 输出到必需输入交接和操作互补同时成立时保留；22,635 个拒绝项保留原因。本地 Qwen 生成器已实现：它只可把已验证候选写成任务、子任务和依赖，并以 JSON、Skill ID 顺序、source hash 与 DAG 校验拒绝越界输出。数据尚未在服务器生成。
 
 ## 对照与判据
 

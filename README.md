@@ -17,7 +17,7 @@ FCSR（Function-aware Coverage Skill Retriever）是一个面向 Agent Skill 检
 | Contract V2 抽取 | 已实现 | 证据偏移、来源哈希和 schema 均在本地校验。 |
 | 单 Skill 合成查询 | 已生成 | `single_v1` 中有 7,342 条 query。 |
 | 多 Skill 候选 | 已生成 | 497 个 pair、51 个 triple；仅有 Contract 规则证据。 |
-| 多 Skill LLM 任务编写 | 未实现 | 下一阶段只应消费已验证候选。 |
+| 多 Skill LLM 任务编写 | 已实现，待运行 | 本地 Qwen 生成器只消费已验证候选，并执行 JSON、顺序和 DAG 校验。 |
 | Bi-Encoder / Reranker 训练 | 已实现 | Qwen + LoRA，支持 dry-run。 |
 | Hard-15 端到端任务执行 | 未实现 | 当前评估的是规划质量，不报告任务成功率。 |
 
@@ -173,7 +173,15 @@ python -B scripts/build_compositional_candidates.py `
   --overwrite
 ```
 
-拒绝样本不会丢弃，而是写入 `candidate_rejections.jsonl.gz`，包含 `missing_or_stale_single_skill_query`、`weak_artifact_handoff`、`missing_complementary_operation` 等原因。下一阶段的 LLM 只负责把这些候选写成用户任务、子任务序列和依赖 DAG，不能自行发明 Skill 组合。
+拒绝样本不会丢弃，而是写入 `candidate_rejections.jsonl.gz`，包含 `missing_or_stale_single_skill_query`、`weak_artifact_handoff`、`missing_complementary_operation` 等原因。生成器只消费这些候选，严格校验 JSON、Skill ID 顺序和依赖 DAG，不能自行发明 Skill 组合。
+
+本地 Qwen 生成前先做无模型预检，再用一张 GPU 跑 50 条 pilot：
+
+```powershell
+python -B scripts/generate_compositional_queries.py --dry-run --limit 50
+```
+
+服务器上使用 [jobs/generate_compositional_qwen3_8b.sbatch](jobs/generate_compositional_qwen3_8b.sbatch) 提交 pilot。成功记录、失败记录和复核队列分别写入 `compositional_queries.jsonl.gz`、`failures.jsonl.gz` 与 `review_queue.jsonl.gz`。
 
 ## 检索与评测
 
