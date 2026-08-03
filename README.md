@@ -21,6 +21,15 @@ FCSR（Function-aware Coverage Skill Retriever）是一个面向 Agent Skill 检
 | Bi-Encoder / Reranker 训练 | 已实现 | Qwen + LoRA，支持 dry-run。 |
 | Hard-15 端到端任务执行 | 未实现 | 当前评估的是规划质量，不报告任务成功率。 |
 
+## 研究问题地图
+
+项目按五个研究问题组织，文档会明确区分已实现的资产、待验证的实验和可报告的结论：
+
+1. [RQ1：大规模 Skill 检索](docs/rq1-skill-retrieval.md)
+2. [RQ2：召回 Skill 的组织](docs/rq2-skill-organization.md)
+3. [RQ3：Agent 规划](docs/rq3-agent-planning.md)
+4. [RQ4：Agent Reflection](docs/rq4-agent-reflection.md)
+5. [RQ5：Agent 评估](docs/rq5-agent-evaluation.md)
 ## 快速开始
 
 要求 Python 3.10 或更高版本。以下命令从仓库根目录执行。

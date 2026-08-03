@@ -13,4 +13,5 @@ data/index/
 
 checkpoints/
 reports/
-docs/
+docs/*
+!docs/rq*.md
