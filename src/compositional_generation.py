@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Iterable, Protocol
+from typing import Any, Callable, Iterable, Protocol
 
 
 PROMPT_VERSION = "compositional_query_prompt_002"
@@ -36,6 +36,15 @@ class CompositionalGenerationResult:
     queries: list[dict[str, Any]]
     failures: list[dict[str, Any]]
     review_queue: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class CompositionalGenerationProgress:
+    candidate_id: str | None
+    completed: int
+    queries: int
+    failures: int
+    review_queue: int
 
 
 class TransformersJsonClient:
@@ -99,6 +108,7 @@ def generate_compositional_queries(
     contracts: Iterable[dict[str, Any]],
     client: CompletionClient,
     config: CompositionalGenerationConfig,
+    progress_callback: Callable[[CompositionalGenerationProgress], None] | None = None,
 ) -> CompositionalGenerationResult:
     """Generate only queries that preserve a verified candidate's composition."""
     _validate_config(config)
@@ -107,20 +117,39 @@ def generate_compositional_queries(
     failures: list[dict[str, Any]] = []
     review_queue: list[dict[str, Any]] = []
 
+    def report_progress(candidate: dict[str, Any]) -> None:
+        if progress_callback is None:
+            return
+        candidate_id = candidate.get("candidate_id")
+        progress = CompositionalGenerationProgress(
+            candidate_id=candidate_id if isinstance(candidate_id, str) else None,
+            completed=len(queries) + len(failures),
+            queries=len(queries),
+            failures=len(failures),
+            review_queue=len(review_queue),
+        )
+        try:
+            progress_callback(progress)
+        except Exception:
+            pass
+
     for candidate in candidates:
         candidate_id = candidate.get("candidate_id")
         skill_ids = candidate.get("skill_ids")
         if not isinstance(candidate_id, str) or not candidate_id:
             failures.append(_failure(candidate, 0, "candidate_id is required"))
+            report_progress(candidate)
             continue
         if not isinstance(skill_ids, list) or len(skill_ids) not in (2, 3) or not all(
             isinstance(skill_id, str) and skill_id for skill_id in skill_ids
         ):
             failures.append(_failure(candidate, 0, "candidate must contain two or three skill_ids"))
+            report_progress(candidate)
             continue
         missing = [skill_id for skill_id in skill_ids if skill_id not in contract_by_id]
         if missing:
             failures.append(_failure(candidate, 0, f"missing validated contracts: {missing}"))
+            report_progress(candidate)
             continue
 
         messages = build_compositional_messages(candidate, contract_by_id, config)
@@ -150,9 +179,11 @@ def generate_compositional_queries(
                         "reason": "retried_generation" if attempt > 1 else "triple_candidate",
                     }
                 )
+            report_progress(candidate)
             break
         else:
             failures.append(_failure(candidate, config.max_attempts, last_error))
+            report_progress(candidate)
 
     return CompositionalGenerationResult(queries, failures, review_queue)
 

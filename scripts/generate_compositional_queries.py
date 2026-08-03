@@ -7,7 +7,7 @@ import itertools
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 from compositional_generation import (
     CompletionClient,
     CompositionalGenerationConfig,
+    CompositionalGenerationProgress,
     TransformersJsonClient,
     generate_compositional_queries,
 )
@@ -66,6 +67,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    progress_group = parser.add_mutually_exclusive_group()
+    progress_group.add_argument("--progress", dest="progress", action="store_true")
+    progress_group.add_argument("--no-progress", dest="progress", action="store_false")
+    parser.set_defaults(progress=None)
     return parser
 
 
@@ -85,19 +90,27 @@ def run(args: argparse.Namespace, client: CompletionClient | None = None) -> dic
             f"local model directory does not exist: {args.model}; download it before submitting GPU work"
         )
     generator = client or TransformersJsonClient(args.model, args.device)
-    result = generate_compositional_queries(
-        candidates,
-        stream_jsonl(args.contracts),
-        generator,
-        CompositionalGenerationConfig(
-            model=args.model,
-            temperature=args.temperature,
-            max_new_tokens=args.max_new_tokens,
-            max_attempts=args.max_attempts,
-            min_query_words=args.min_query_words,
-            max_query_words=args.max_query_words,
-        ),
+    progress_bar, progress_callback = _create_progress_callback(
+        len(candidates), getattr(args, "progress", None)
     )
+    try:
+        result = generate_compositional_queries(
+            candidates,
+            stream_jsonl(args.contracts),
+            generator,
+            CompositionalGenerationConfig(
+                model=args.model,
+                temperature=args.temperature,
+                max_new_tokens=args.max_new_tokens,
+                max_attempts=args.max_attempts,
+                min_query_words=args.min_query_words,
+                max_query_words=args.max_query_words,
+            ),
+            progress_callback=progress_callback,
+        )
+    finally:
+        if progress_bar is not None:
+            progress_bar.close()
     query_count = write_jsonl_atomic(args.output, result.queries)
     failure_count = write_jsonl_atomic(args.failures, result.failures)
     review_count = write_jsonl_atomic(args.review_queue, result.review_queue)
@@ -112,6 +125,26 @@ def run(args: argparse.Namespace, client: CompletionClient | None = None) -> dic
     }
     _update_manifest(args.manifest, summary, args)
     return summary
+
+
+def _create_progress_callback(
+    total: int, requested: bool | None
+) -> tuple[Any | None, Callable[[CompositionalGenerationProgress], None] | None]:
+    if requested is False or (requested is None and not sys.stderr.isatty()):
+        return None, None
+    from tqdm import tqdm
+
+    progress_bar = tqdm(total=total, desc="Generating queries", unit="candidate")
+
+    def update(progress: CompositionalGenerationProgress) -> None:
+        progress_bar.update(1)
+        progress_bar.set_postfix(
+            success=progress.queries,
+            failures=progress.failures,
+            review=progress.review_queue,
+        )
+
+    return progress_bar, update
 
 
 def _validate_inputs(args: argparse.Namespace) -> None:

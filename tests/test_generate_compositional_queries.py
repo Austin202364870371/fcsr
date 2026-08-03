@@ -11,7 +11,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from data_io import stream_jsonl, write_jsonl_atomic
-from generate_compositional_queries import run
+from generate_compositional_queries import build_parser, run
 
 
 class FakeClient:
@@ -28,6 +28,12 @@ class FakeClient:
 
 
 class GenerateCompositionalQueriesScriptTests(unittest.TestCase):
+    def test_parser_supports_explicit_progress_controls(self) -> None:
+        parser = build_parser()
+
+        self.assertIsNone(parser.parse_args([]).progress)
+        self.assertTrue(parser.parse_args(["--progress"]).progress)
+        self.assertFalse(parser.parse_args(["--no-progress"]).progress)
     def test_run_writes_gzip_outputs_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
             root = Path(directory)

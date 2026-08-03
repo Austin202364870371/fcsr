@@ -121,6 +121,42 @@ class CompositionalGenerationTests(unittest.TestCase):
         self.assertEqual(len(result.failures), 1)
         self.assertIn("handoff edges", result.failures[0]["error"])
 
+    def test_reports_terminal_progress_for_success_and_failure(self) -> None:
+        valid_candidate = {
+            "candidate_id": "comp::pair::progress",
+            "candidate_type": "pair",
+            "skill_ids": ["build-api", "validate-api"],
+            "edges": [{"from_skill_id": "build-api", "to_skill_id": "validate-api"}],
+        }
+        progress = []
+
+        result = generate_compositional_queries(
+            [valid_candidate, {"candidate_type": "pair"}],
+            [
+                contract("build-api", "hash-build", "Generate an OpenAPI specification."),
+                contract("validate-api", "hash-validate", "Validate an OpenAPI specification."),
+            ],
+            FakeClient(
+                """{
+                  "query": "Prepare a complete API contract for an implementation team, then validate endpoint definitions, request and response schemas, authentication behavior, error handling, versioning notes, and acceptance criteria before publishing a final specification and validation report for release approval.",
+                  "positive_skill_ids": ["build-api", "validate-api"],
+                  "subtasks": [
+                    {"step_id": "s1", "skill_id": "build-api", "instruction": "Draft the specification."},
+                    {"step_id": "s2", "skill_id": "validate-api", "instruction": "Validate the specification."}
+                  ],
+                  "dependencies": [{"from_step_id": "s1", "to_step_id": "s2"}]
+                }"""
+            ),
+            CompositionalGenerationConfig(model="/models/Qwen3-8B"),
+            progress_callback=progress.append,
+        )
+
+        self.assertEqual(len(result.queries), 1)
+        self.assertEqual(len(result.failures), 1)
+        self.assertEqual(
+            [(event.completed, event.queries, event.failures, event.review_queue) for event in progress],
+            [(1, 1, 0, 0), (2, 1, 1, 0)],
+        )
     def test_retry_prompt_includes_word_limit_and_validation_error(self) -> None:
         candidate = {
             "candidate_id": "comp::pair::03",
