@@ -1,8 +1,0 @@
--r requirements.txt
-
-transformers==4.51.3
-peft==0.11.1
-accelerate==0.31.0
-safetensors>=0.4.3
-sentencepiece>=0.2.0
-huggingface-hub[cli]>=0.30.0

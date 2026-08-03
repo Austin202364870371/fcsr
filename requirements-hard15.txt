@@ -1,3 +1,0 @@
--r requirements-agent.txt
-huggingface_hub>=0.34,<1
-pytest>=8.3,<9
