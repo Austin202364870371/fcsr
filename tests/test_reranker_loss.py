@@ -3,7 +3,7 @@ import subprocess
 import sys
 import unittest
 
-from modeling import build_reranker_groups
+from modeling import build_reranker_groups, materialize_reranker_groups
 
 
 TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
@@ -46,7 +46,25 @@ class RerankerTests(unittest.TestCase):
         group = result.groups[0]
         self.assertEqual(group["positive_mask"], [False, True])
         self.assertEqual([item["rank"] for item in group["candidates"]], [1, 2])
+        self.assertNotIn("prompt", group["candidates"][0])
         self.assertEqual(processed, [1, 1])
+
+    def test_materializes_compact_group_prompts_from_skill_ids(self) -> None:
+        compact = [{
+            "query_id": "q1",
+            "query": "do the task",
+            "candidates": [
+                {"skill_id": "p", "rank": 1, "retrieval_score": 0.8, "label": 1},
+            ],
+            "positive_mask": [True],
+        }]
+        skills = [{"skill_id": "p", "name": "name", "description": "desc", "body": "body"}]
+
+        materialized = materialize_reranker_groups(compact, skills)
+
+        self.assertEqual(materialized[0]["candidates"][0]["skill_id"], "p")
+        self.assertIn("<Query>: do the task", materialized[0]["candidates"][0]["prompt"])
+        self.assertIn("name | desc | body", materialized[0]["candidates"][0]["prompt"])
 
     @unittest.skipUnless(
         TORCH_AVAILABLE,

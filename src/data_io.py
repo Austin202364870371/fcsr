@@ -57,7 +57,14 @@ def write_jsonl_atomic(path: str | Path, records: Iterable[dict[str, Any]]) -> i
     temporary = Path(f"{destination}.tmp")
     count = 0
     try:
-        with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+        opener = (
+            gzip.open
+            if destination.name.endswith(".gz")
+            else lambda target, mode, encoding, newline: target.open(
+                mode, encoding=encoding, newline=newline
+            )
+        )
+        with opener(temporary, "wt", encoding="utf-8", newline="\n") as handle:
             for record in records:
                 handle.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
                 handle.write("\n")

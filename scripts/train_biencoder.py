@@ -51,8 +51,8 @@ def enable_checkpoint_input_gradients(model: Any) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train the FCSR Qwen bi-encoder")
     parser.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
-    parser.add_argument("--train-data", default="data/synthetic/train_biencoder.jsonl")
-    parser.add_argument("--skills", default="data/raw/skills_easy.jsonl")
+    parser.add_argument("--train-data", default="data/synthetic/single_v1/train_biencoder.jsonl.gz")
+    parser.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     parser.add_argument("--model")
     parser.add_argument("--output-dir")
     parser.add_argument("--method", choices=("lora", "full"))

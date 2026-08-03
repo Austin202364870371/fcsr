@@ -55,17 +55,17 @@ python -B -m unittest discover -s tests -v
 项目需要以下原始数据：
 
 ```text
-data/raw/evaluation_queries.jsonl   整理后的 75 条计分任务
-data/raw/skills_easy.jsonl          包含 78,361 条 Skill 的自然技能池
-data/raw/skills_hard.jsonl          包含 79,141 条 Skill 的困难技能池
+data/raw/evaluation_queries.jsonl.gz   整理后的 75 条计分任务
+data/raw/skills_easy.jsonl.gz          包含 78,361 条 Skill 的自然技能池
+data/raw/skills_hard.jsonl.gz          包含 79,141 条 Skill 的困难技能池
 ```
 
 ## 2. 在本地分层抽样 8,000 条 Skill
 
 ```powershell
 python -B scripts/preprocess.py sample `
-  --skills data/raw/skills_easy.jsonl `
-  --tasks data/raw/evaluation_queries.jsonl `
+  --skills data/raw/skills_easy.jsonl.gz `
+  --tasks data/raw/evaluation_queries.jsonl.gz `
   --sample-size 8000 --seed 42 `
   --output-dir data/contracts --overwrite
 ```
@@ -73,7 +73,7 @@ python -B scripts/preprocess.py sample `
 输出文件：
 
 ```text
-data/contracts/sample_skills.jsonl
+data/contracts/sample_skills.jsonl.gz
 data/contracts/manifest.json
 ```
 
@@ -95,7 +95,7 @@ DEEPSEEK_API_KEY=你的真实 API Key
 python -B scripts/preprocess.py contracts --limit 3
 ```
 
-检查 `data/contracts/contracts.jsonl` 和 `data/contracts/failures.jsonl`。确认无误后，去掉 `--limit` 继续处理完整样本：
+检查 `data/contracts/contracts.jsonl.gz` 和 `data/contracts/failures.jsonl.gz`。确认无误后，去掉 `--limit` 继续处理完整样本：
 
 ```powershell
 python -B scripts/preprocess.py contracts
@@ -114,15 +114,15 @@ python -B scripts/preprocess.py queries
 
 运行时会显示 `Queries` 进度条以及 `ok`、`skip`、`fail` 计数；在日志任务中可添加 `--no-progress` 关闭动态输出。
 
-输出为 `data/synthetic/queries.jsonl`。Query Prompt V5 要求每条查询为 80--180 个英文词，并把 Contract 中的 operations、outputs、constraints 和 quality criteria 作为交付动作白名单；周边业务只能作为已经存在的场景背景。词数不合格、泄露 Skill 名称、JSON 格式无效或者缺少当前有效 Contract 的查询会被拒绝或重试，并在适用时写入失败记录。
+输出为 `data/synthetic/single_v1/queries.jsonl.gz`。Query Prompt V5 要求每条查询为 80--180 个英文词，并把 Contract 中的 operations、outputs、constraints 和 quality criteria 作为交付动作白名单；周边业务只能作为已经存在的场景背景。词数不合格、泄露 Skill 名称、JSON 格式无效或者缺少当前有效 Contract 的查询会被拒绝或重试，并在适用时写入失败记录。
 
 ## 5. 挖掘本地负样本
 
 ```powershell
 python -B scripts/preprocess.py local-negatives `
-  --queries data/synthetic/queries.jsonl `
-  --skills data/raw/skills_easy.jsonl `
-  --output data/synthetic/local_negatives.jsonl `
+  --queries data/synthetic/single_v1/queries.jsonl.gz `
+  --skills data/raw/skills_easy.jsonl.gz `
+  --output data/synthetic/single_v1/local_negatives.jsonl.gz `
   --seed 42 --overwrite
 ```
 
@@ -159,11 +159,11 @@ hf download Qwen/Qwen3-Reranker-0.6B --local-dir /root/autodl-tmp/models/Qwen3-R
 
 ```bash
 python -B scripts/preprocess.py semantic-negatives \
-  --local data/synthetic/local_negatives.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --local data/synthetic/single_v1/local_negatives.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
-  --output data/synthetic/train_biencoder.jsonl \
-  --review data/processed/contract_fn_review.jsonl \
+  --output data/synthetic/single_v1/train_biencoder.jsonl.gz \
+  --review data/processed/contract_fn_review.jsonl.gz \
   --top-k 50 --threshold 0.95 --batch-size 8 --overwrite
 ```
 
@@ -193,21 +193,21 @@ python -B scripts/train_biencoder.py \
 
 ```bash
 python -B scripts/evaluate.py retrieve \
-  --queries data/synthetic/queries.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --queries data/synthetic/single_v1/queries.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --model checkpoints/fcsr-emb-0.6b \
   --top-k 20 --batch-size 8 \
   --output-predictions data/processed/synthetic_top20.json \
-  --output-records data/processed/synthetic_top20.jsonl
+  --output-records data/processed/synthetic_top20.jsonl.gz
 ```
 
 构造有序候选组并校验：
 
 ```bash
 python -B scripts/train_reranker.py prepare \
-  --retrieval data/processed/synthetic_top20.jsonl \
-  --skills data/raw/skills_easy.jsonl \
-  --output data/synthetic/train_reranker.jsonl --top-k 20 --overwrite
+  --retrieval data/processed/synthetic_top20.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
+  --output data/synthetic/single_v1/train_reranker.jsonl.gz --top-k 20 --overwrite
 python -B scripts/train_reranker.py train --dry-run
 ```
 
@@ -230,40 +230,40 @@ mkdir -p reports/baselines/{bm25,dense,hybrid}
 
 for tier in easy hard; do
   python -B scripts/evaluate.py bm25 \
-    --queries data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl --top-k 50 \
+    --queries data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz --top-k 50 \
     --output-predictions reports/baselines/bm25/retrieval_${tier}.json \
     --output-records reports/baselines/bm25/retrieval_${tier}.jsonl
   python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --tasks data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --predictions reports/baselines/bm25/retrieval_${tier}.json \
     --stage retrieval --tier ${tier} --output-dir reports/baselines/bm25
 
   python -B scripts/evaluate.py retrieve \
-    --queries data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --queries data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
     --top-k 50 --batch-size 8 --skill-max-length 2048 \
     --output-predictions reports/baselines/dense/retrieval_${tier}.json \
     --output-records reports/baselines/dense/retrieval_${tier}.jsonl
   python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --tasks data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --predictions reports/baselines/dense/retrieval_${tier}.json \
     --stage retrieval --tier ${tier} --output-dir reports/baselines/dense
 
   python -B scripts/evaluate.py hybrid \
-    --queries data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --queries data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
     --top-k 50 --fusion-depth 100 --rrf-k 60 \
     --batch-size 8 --skill-max-length 2048 \
     --output-predictions reports/baselines/hybrid/retrieval_${tier}.json \
     --output-records reports/baselines/hybrid/retrieval_${tier}.jsonl
   python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --tasks data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --predictions reports/baselines/hybrid/retrieval_${tier}.json \
     --stage retrieval --tier ${tier} --output-dir reports/baselines/hybrid
 done
@@ -276,25 +276,25 @@ BM25 不使用 GPU；Dense 与 Hybrid 使用基础 Qwen3-Embedding-0.6B，不加
 
 ```bash
 python -B scripts/evaluate.py retrieve \
-  --queries data/raw/evaluation_queries.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --queries data/raw/evaluation_queries.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --model checkpoints/fcsr-emb-0.6b --top-k 50 \
   --output-predictions reports/retrieval_easy.json \
   --output-records reports/retrieval_easy.jsonl
 python -B scripts/evaluate.py rerank \
   --retrieval-records reports/retrieval_easy.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --skills data/raw/skills_easy.jsonl.gz \
   --model checkpoints/fcsr-rank-0.6b --top-k 20 \
   --output-predictions reports/reranker_easy.json \
   --output-records reports/reranker_easy.jsonl
 python -B scripts/evaluate.py score \
-  --tasks data/raw/evaluation_queries.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --tasks data/raw/evaluation_queries.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --predictions reports/retrieval_easy.json \
   --stage retrieval --tier easy
 python -B scripts/evaluate.py score \
-  --tasks data/raw/evaluation_queries.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --tasks data/raw/evaluation_queries.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --predictions reports/reranker_easy.json \
   --stage reranker --tier easy
 ```

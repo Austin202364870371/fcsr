@@ -48,8 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     sample = subparsers.add_parser("sample", help="create a deterministic skill sample")
-    sample.add_argument("--skills", default="data/raw/skills_easy.jsonl")
-    sample.add_argument("--tasks", default="data/raw/evaluation_queries.jsonl")
+    sample.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
+    sample.add_argument("--tasks", default="data/raw/evaluation_queries.jsonl.gz")
     sample.add_argument("--sample-size", type=int, default=8000)
     sample.add_argument("--seed", type=int, default=42)
     sample.add_argument("--output-dir", default="data/contracts")
@@ -59,27 +59,27 @@ def build_parser() -> argparse.ArgumentParser:
         "contracts", help="extract evidence-grounded contracts with DeepSeek"
     )
     _add_llm_arguments(contracts)
-    contracts.add_argument("--sample", default="data/contracts/sample_skills.jsonl")
-    contracts.add_argument("--output", default="data/contracts/contracts.jsonl")
-    contracts.add_argument("--failures", default="data/contracts/failures.jsonl")
+    contracts.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
+    contracts.add_argument("--output", default="data/contracts/contracts.jsonl.gz")
+    contracts.add_argument("--failures", default="data/contracts/failures.jsonl.gz")
     contracts.add_argument("--no-progress", action="store_true")
 
     queries = subparsers.add_parser(
         "queries", help="generate contract-grounded synthetic queries with DeepSeek"
     )
     _add_llm_arguments(queries)
-    queries.add_argument("--sample", default="data/contracts/sample_skills.jsonl")
-    queries.add_argument("--contracts", default="data/contracts/contracts.jsonl")
-    queries.add_argument("--output", default="data/synthetic/queries.jsonl")
-    queries.add_argument("--failures", default="data/contracts/failures.jsonl")
+    queries.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
+    queries.add_argument("--contracts", default="data/contracts/contracts.jsonl.gz")
+    queries.add_argument("--output", default="data/synthetic/single_v1/queries.jsonl.gz")
+    queries.add_argument("--failures", default="data/contracts/failures.jsonl.gz")
     queries.add_argument("--no-progress", action="store_true")
 
     local = subparsers.add_parser(
         "local-negatives", help="mine BM25, same-category, and random negatives"
     )
-    local.add_argument("--queries", default="data/synthetic/queries.jsonl")
-    local.add_argument("--skills", default="data/raw/skills_easy.jsonl")
-    local.add_argument("--output", default="data/synthetic/local_negatives.jsonl")
+    local.add_argument("--queries", default="data/synthetic/single_v1/queries.jsonl.gz")
+    local.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
+    local.add_argument("--output", default="data/synthetic/single_v1/local_negatives.jsonl.gz")
     local.add_argument("--seed", type=int, default=42)
     local.add_argument("--overlap-threshold", type=float, default=0.85)
     local.add_argument("--overwrite", action="store_true")
@@ -88,11 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
     semantic = subparsers.add_parser(
         "semantic-negatives", help="mine semantic negatives with a Qwen encoder"
     )
-    semantic.add_argument("--local", default="data/synthetic/local_negatives.jsonl")
-    semantic.add_argument("--skills", default="data/raw/skills_easy.jsonl")
-    semantic.add_argument("--output", default="data/synthetic/train_biencoder.jsonl")
+    semantic.add_argument("--local", default="data/synthetic/single_v1/local_negatives.jsonl.gz")
+    semantic.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
+    semantic.add_argument("--output", default="data/synthetic/single_v1/train_biencoder.jsonl.gz")
     semantic.add_argument(
-        "--review", default="data/processed/contract_fn_review.jsonl"
+        "--review", default="data/processed/contract_fn_review.jsonl.gz"
     )
     semantic.add_argument("--model", default="Qwen/Qwen3-Embedding-0.6B")
     semantic.add_argument("--top-k", type=int, default=50)
@@ -120,7 +120,7 @@ def _add_llm_arguments(parser: argparse.ArgumentParser) -> None:
 
 def run_sample(args: argparse.Namespace) -> dict:
     output_dir = Path(args.output_dir)
-    sample_path = output_dir / "sample_skills.jsonl"
+    sample_path = output_dir / "sample_skills.jsonl.gz"
     manifest_path = output_dir / "manifest.json"
     if not args.overwrite and (sample_path.exists() or manifest_path.exists()):
         raise FileExistsError("sample outputs exist; pass --overwrite to replace them")

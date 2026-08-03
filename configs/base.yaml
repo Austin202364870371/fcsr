@@ -2,15 +2,15 @@ project_name: fcsr
 seed: 42
 
 data:
-  raw_skills: data/raw/skills_easy.jsonl
-  raw_tasks: data/raw/evaluation_queries.jsonl
-  contract_sample: data/contracts/sample_skills.jsonl
-  contracts: data/contracts/contracts.jsonl
-  contract_failures: data/contracts/failures.jsonl
+  raw_skills: data/raw/skills_easy.jsonl.gz
+  raw_tasks: data/raw/evaluation_queries.jsonl.gz
+  contract_sample: data/contracts/sample_skills.jsonl.gz
+  contracts: data/contracts/contracts.jsonl.gz
+  contract_failures: data/contracts/failures.jsonl.gz
   contract_manifest: data/contracts/manifest.json
-  synthetic_queries: data/synthetic/queries.jsonl
-  biencoder_train: data/synthetic/train_biencoder.jsonl
-  reranker_train: data/synthetic/train_reranker.jsonl
+  synthetic_queries: data/synthetic/single_v1/queries.jsonl.gz
+  biencoder_train: data/synthetic/single_v1/train_biencoder.jsonl.gz
+  reranker_train: data/synthetic/single_v1/train_reranker.jsonl.gz
 
 contracts:
   schema_version: contract_v2

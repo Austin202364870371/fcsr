@@ -299,10 +299,6 @@ def build_reranker_groups(
                     "rank": rank,
                     "retrieval_score": float(candidate.get("score", 0.0)),
                     "label": 1 if is_positive else 0,
-                    "prompt": format_rerank_prompt(
-                        str(record.get("query", "")),
-                        lookup[skill_id],
-                    ),
                 }
             )
             positive_mask.append(is_positive)
@@ -329,6 +325,38 @@ def build_reranker_groups(
         dropped_no_positive=dropped,
     )
 
+
+def materialize_reranker_groups(groups: Any, skills: Any) -> list[dict[str, Any]]:
+    """Rebuild reranker prompts from compact candidate metadata and raw Skills."""
+    compact_groups = list(groups)
+    required_ids = {
+        candidate.get("skill_id")
+        for group in compact_groups
+        for candidate in group.get("candidates", [])
+        if isinstance(candidate.get("skill_id"), str) and candidate["skill_id"]
+    }
+    lookup = {
+        skill["skill_id"]: skill
+        for skill in skills
+        if skill.get("skill_id") in required_ids
+    }
+    missing = sorted(required_ids - lookup.keys())
+    if missing:
+        raise ValueError(f"reranker candidate skill not found: {missing[0]!r}")
+
+    materialized = []
+    for group in compact_groups:
+        query = str(group.get("query", ""))
+        candidates = []
+        for candidate in group.get("candidates", []):
+            skill_id = candidate.get("skill_id")
+            if not isinstance(skill_id, str) or not skill_id:
+                raise ValueError("reranker candidate must have a non-empty skill_id")
+            record = dict(candidate)
+            record["prompt"] = format_rerank_prompt(query, lookup[skill_id])
+            candidates.append(record)
+        materialized.append({**group, "candidates": candidates})
+    return materialized
 
 def listwise_cross_entropy(scores: Any, positive_mask: Any) -> Any:
     try:

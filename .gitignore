@@ -4,7 +4,10 @@ __pycache__/
 
 data/raw/
 data/contracts/
-data/synthetic/
+data/synthetic/*
+!data/synthetic/*/
+data/synthetic/*/*
+!data/synthetic/*/manifest.json
 data/processed/
 data/index/
 

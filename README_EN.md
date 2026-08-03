@@ -55,17 +55,17 @@ If PyTorch is not installed locally, four numerical training tests are skipped a
 Required raw files:
 
 ```text
-data/raw/evaluation_queries.jsonl   consolidated 75 scored tasks
-data/raw/skills_easy.jsonl          78,361-skill natural pool
-data/raw/skills_hard.jsonl          79,141-skill hard pool
+data/raw/evaluation_queries.jsonl.gz   consolidated 75 scored tasks
+data/raw/skills_easy.jsonl.gz          78,361-skill natural pool
+data/raw/skills_hard.jsonl.gz          79,141-skill hard pool
 ```
 
 ## 2. Sample 8,000 Skills Locally
 
 ```powershell
 python -B scripts/preprocess.py sample `
-  --skills data/raw/skills_easy.jsonl `
-  --tasks data/raw/evaluation_queries.jsonl `
+  --skills data/raw/skills_easy.jsonl.gz `
+  --tasks data/raw/evaluation_queries.jsonl.gz `
   --sample-size 8000 --seed 42 `
   --output-dir data/contracts --overwrite
 ```
@@ -73,7 +73,7 @@ python -B scripts/preprocess.py sample `
 Outputs:
 
 ```text
-data/contracts/sample_skills.jsonl
+data/contracts/sample_skills.jsonl.gz
 data/contracts/manifest.json
 ```
 
@@ -95,7 +95,7 @@ The default model is [`deepseek-v4-flash`](https://api-docs.deepseek.com/news/ne
 python -B scripts/preprocess.py contracts --limit 3
 ```
 
-Inspect `data/contracts/contracts.jsonl` and `data/contracts/failures.jsonl`. Then resume the full sample by omitting `--limit`:
+Inspect `data/contracts/contracts.jsonl.gz` and `data/contracts/failures.jsonl.gz`. Then resume the full sample by omitting `--limit`:
 
 ```powershell
 python -B scripts/preprocess.py contracts
@@ -118,15 +118,15 @@ python -B scripts/preprocess.py queries
 
 The command shows a `Queries` progress bar with `ok`, `skip`, and `fail` counts. Add `--no-progress` to disable dynamic output in log jobs.
 
-Output: `data/synthetic/queries.jsonl`. Query Prompt V5 requires 80--180 English words and treats the Contract's operations, outputs, constraints, and quality criteria as an allowlist of requested work; surrounding business logic may appear only as an already-existing scenario. Queries with an invalid length, a leaked skill name, invalid JSON, or no current validated Contract are rejected or retried and recorded as failures where applicable.
+Output: `data/synthetic/single_v1/queries.jsonl.gz`. Query Prompt V5 requires 80--180 English words and treats the Contract's operations, outputs, constraints, and quality criteria as an allowlist of requested work; surrounding business logic may appear only as an already-existing scenario. Queries with an invalid length, a leaked skill name, invalid JSON, or no current validated Contract are rejected or retried and recorded as failures where applicable.
 
 ## 5. Mine Local Negatives
 
 ```powershell
 python -B scripts/preprocess.py local-negatives `
-  --queries data/synthetic/queries.jsonl `
-  --skills data/raw/skills_easy.jsonl `
-  --output data/synthetic/local_negatives.jsonl `
+  --queries data/synthetic/single_v1/queries.jsonl.gz `
+  --skills data/raw/skills_easy.jsonl.gz `
+  --output data/synthetic/single_v1/local_negatives.jsonl.gz `
   --seed 42 --overwrite
 ```
 
@@ -163,11 +163,11 @@ This is the only model download step. Do not run it on the local preprocessing m
 
 ```bash
 python -B scripts/preprocess.py semantic-negatives \
-  --local data/synthetic/local_negatives.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --local data/synthetic/single_v1/local_negatives.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
-  --output data/synthetic/train_biencoder.jsonl \
-  --review data/processed/contract_fn_review.jsonl \
+  --output data/synthetic/single_v1/train_biencoder.jsonl.gz \
+  --review data/processed/contract_fn_review.jsonl.gz \
   --top-k 50 --threshold 0.95 --batch-size 8 --overwrite
 ```
 
@@ -197,21 +197,21 @@ Retrieve the synthetic training queries with the trained Bi-Encoder:
 
 ```bash
 python -B scripts/evaluate.py retrieve \
-  --queries data/synthetic/queries.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --queries data/synthetic/single_v1/queries.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --model checkpoints/fcsr-emb-0.6b \
   --top-k 20 --batch-size 8 \
   --output-predictions data/processed/synthetic_top20.json \
-  --output-records data/processed/synthetic_top20.jsonl
+  --output-records data/processed/synthetic_top20.jsonl.gz
 ```
 
 Prepare ordered candidate groups and validate them:
 
 ```bash
 python -B scripts/train_reranker.py prepare \
-  --retrieval data/processed/synthetic_top20.jsonl \
-  --skills data/raw/skills_easy.jsonl \
-  --output data/synthetic/train_reranker.jsonl --top-k 20 --overwrite
+  --retrieval data/processed/synthetic_top20.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
+  --output data/synthetic/single_v1/train_reranker.jsonl.gz --top-k 20 --overwrite
 python -B scripts/train_reranker.py train --dry-run
 ```
 
@@ -234,40 +234,40 @@ mkdir -p reports/baselines/{bm25,dense,hybrid}
 
 for tier in easy hard; do
   python -B scripts/evaluate.py bm25 \
-    --queries data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl --top-k 50 \
+    --queries data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz --top-k 50 \
     --output-predictions reports/baselines/bm25/retrieval_${tier}.json \
     --output-records reports/baselines/bm25/retrieval_${tier}.jsonl
   python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --tasks data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --predictions reports/baselines/bm25/retrieval_${tier}.json \
     --stage retrieval --tier ${tier} --output-dir reports/baselines/bm25
 
   python -B scripts/evaluate.py retrieve \
-    --queries data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --queries data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
     --top-k 50 --batch-size 8 --skill-max-length 2048 \
     --output-predictions reports/baselines/dense/retrieval_${tier}.json \
     --output-records reports/baselines/dense/retrieval_${tier}.jsonl
   python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --tasks data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --predictions reports/baselines/dense/retrieval_${tier}.json \
     --stage retrieval --tier ${tier} --output-dir reports/baselines/dense
 
   python -B scripts/evaluate.py hybrid \
-    --queries data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --queries data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
     --top-k 50 --fusion-depth 100 --rrf-k 60 \
     --batch-size 8 --skill-max-length 2048 \
     --output-predictions reports/baselines/hybrid/retrieval_${tier}.json \
     --output-records reports/baselines/hybrid/retrieval_${tier}.jsonl
   python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl \
-    --skills data/raw/skills_${tier}.jsonl \
+    --tasks data/raw/evaluation_queries.jsonl.gz \
+    --skills data/raw/skills_${tier}.jsonl.gz \
     --predictions reports/baselines/hybrid/retrieval_${tier}.json \
     --stage retrieval --tier ${tier} --output-dir reports/baselines/hybrid
 done
@@ -280,25 +280,25 @@ For each pool, export retrieval Top-50, rerank its first 20 candidates, and then
 
 ```bash
 python -B scripts/evaluate.py retrieve \
-  --queries data/raw/evaluation_queries.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --queries data/raw/evaluation_queries.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --model checkpoints/fcsr-emb-0.6b --top-k 50 \
   --output-predictions reports/retrieval_easy.json \
   --output-records reports/retrieval_easy.jsonl
 python -B scripts/evaluate.py rerank \
   --retrieval-records reports/retrieval_easy.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --skills data/raw/skills_easy.jsonl.gz \
   --model checkpoints/fcsr-rank-0.6b --top-k 20 \
   --output-predictions reports/reranker_easy.json \
   --output-records reports/reranker_easy.jsonl
 python -B scripts/evaluate.py score \
-  --tasks data/raw/evaluation_queries.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --tasks data/raw/evaluation_queries.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --predictions reports/retrieval_easy.json \
   --stage retrieval --tier easy
 python -B scripts/evaluate.py score \
-  --tasks data/raw/evaluation_queries.jsonl \
-  --skills data/raw/skills_easy.jsonl \
+  --tasks data/raw/evaluation_queries.jsonl.gz \
+  --skills data/raw/skills_easy.jsonl.gz \
   --predictions reports/reranker_easy.json \
   --stage reranker --tier easy
 ```

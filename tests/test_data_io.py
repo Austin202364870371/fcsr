@@ -44,6 +44,15 @@ class DataIoTests(unittest.TestCase):
             self.assertEqual(path.read_text(encoding="utf-8"), '{"old": true}\n')
             self.assertFalse(path.with_suffix(".jsonl.tmp").exists())
 
+    def test_atomic_writer_writes_gzip_jsonl_that_can_be_streamed(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "output.jsonl.gz"
+
+            count = write_jsonl_atomic(path, [{"id": 1}, {"id": 2}])
+
+            self.assertEqual(count, 2)
+            self.assertEqual(load_jsonl(path), [{"id": 1}, {"id": 2}])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -69,9 +69,9 @@ Then run:
 conda activate agent-learn
 export PYTHONPATH=src
 python -B scripts/prepare_hard_pilot.py \
-  --queries data/raw/evaluation_queries.jsonl \
+  --queries data/raw/evaluation_queries.jsonl.gz \
   --rankings reports/hard/fcsr/reranker_hard.jsonl \
-  --skills data/raw/skills_hard.jsonl \
+  --skills data/raw/skills_hard.jsonl.gz \
   --task-environments /path/to/skillsbench/tasks \
   --output-dir reports/agent/hard15
 ```
