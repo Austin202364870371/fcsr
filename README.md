@@ -116,6 +116,16 @@ python -B scripts/preprocess.py queries
 
 输出为 `data/synthetic/single_v1/queries.jsonl.gz`。Query Prompt V5 要求每条查询为 80--180 个英文词，并把 Contract 中的 operations、outputs、constraints 和 quality criteria 作为交付动作白名单；周边业务只能作为已经存在的场景背景。词数不合格、泄露 Skill 名称、JSON 格式无效或者缺少当前有效 Contract 的查询会被拒绝或重试，并在适用时写入失败记录。
 
+### Contract 引导的多 Skill 候选
+
+候选构造不调用 LLM。它只保留已验证且与单 Skill query `source_hash` 一致的 Contract，要求上游 `outputs` 与下游必需 `inputs` 在 artifact 层面精确或高重叠匹配，并记录被拒绝组合的原因：
+
+```powershell
+python -B scripts/build_compositional_candidates.py
+```
+
+输出为 `data/synthetic/compositional_v1/candidates.jsonl.gz`、`candidate_rejections.jsonl.gz` 和更新后的 `manifest.json`。下一阶段仅对这些候选调用 LLM 生成自然语言任务与有序子任务。
+
 ## 5. 挖掘本地负样本
 
 ```powershell

@@ -1,7 +1,7 @@
 {
   "schema_version": "synthetic_compositional_v1",
   "task_type": "multi_skill",
-  "status": "not_generated",
+  "status": "candidates_generated",
   "storage_format": "jsonl.gz",
   "source_universe": {
     "eligible_skills": "valid_contracts AND single_v1_queries AND not_benchmark_skill",
@@ -14,10 +14,32 @@
     "target_triples_max": 1000
   },
   "artifacts": {
-    "candidates": "candidates.jsonl.gz",
-    "candidate_rejections": "candidate_rejections.jsonl.gz",
+    "candidates": {
+      "path": "candidates.jsonl.gz",
+      "records": 548
+    },
+    "candidate_rejections": {
+      "path": "candidate_rejections.jsonl.gz",
+      "records": 22635
+    },
     "queries": "queries.jsonl.gz",
     "failures": "failures.jsonl.gz",
     "review_queue": "review_queue.jsonl.gz"
+  },
+  "candidate_construction": {
+    "contracts": "data/contracts/contracts.jsonl.gz",
+    "single_skill_queries": "data/synthetic/single_v1/queries.jsonl.gz",
+    "benchmark_tasks": "data/raw/evaluation_queries.jsonl.gz",
+    "max_pairs": 7342,
+    "max_triples": 1000,
+    "max_pairs_per_source": 16,
+    "max_artifact_frequency": 5,
+    "eligible_skills": 7342,
+    "pairs": 497,
+    "triples": 51,
+    "candidates": 548,
+    "rejections": 22635,
+    "output": "data/synthetic/compositional_v1/candidates.jsonl.gz",
+    "rejections_output": "data/synthetic/compositional_v1/candidate_rejections.jsonl.gz"
   }
 }

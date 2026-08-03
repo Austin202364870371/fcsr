@@ -120,6 +120,16 @@ The command shows a `Queries` progress bar with `ok`, `skip`, and `fail` counts.
 
 Output: `data/synthetic/single_v1/queries.jsonl.gz`. Query Prompt V5 requires 80--180 English words and treats the Contract's operations, outputs, constraints, and quality criteria as an allowlist of requested work; surrounding business logic may appear only as an already-existing scenario. Queries with an invalid length, a leaked skill name, invalid JSON, or no current validated Contract are rejected or retried and recorded as failures where applicable.
 
+### Contract-Guided Multi-Skill Candidates
+
+Candidate construction makes no LLM call. It retains only validated Contracts whose `source_hash` matches the single-Skill query, requires an exact or high-overlap artifact handoff from upstream `outputs` to downstream required `inputs`, and records every rejected combination with a reason:
+
+```powershell
+python -B scripts/build_compositional_candidates.py
+```
+
+It writes `data/synthetic/compositional_v1/candidates.jsonl.gz`, `candidate_rejections.jsonl.gz`, and an updated `manifest.json`. Only these candidates enter the subsequent LLM task-authoring stage.
+
 ## 5. Mine Local Negatives
 
 ```powershell

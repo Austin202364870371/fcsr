@@ -11,6 +11,9 @@ data:
   synthetic_queries: data/synthetic/single_v1/queries.jsonl.gz
   biencoder_train: data/synthetic/single_v1/train_biencoder.jsonl.gz
   reranker_train: data/synthetic/single_v1/train_reranker.jsonl.gz
+  compositional_manifest: data/synthetic/compositional_v1/manifest.json
+  compositional_candidates: data/synthetic/compositional_v1/candidates.jsonl.gz
+  compositional_rejections: data/synthetic/compositional_v1/candidate_rejections.jsonl.gz
 
 contracts:
   schema_version: contract_v2
