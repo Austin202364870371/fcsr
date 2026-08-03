@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Protocol
 
 
-PROMPT_VERSION = "compositional_query_prompt_001"
+PROMPT_VERSION = "compositional_query_prompt_002"
 SCHEMA_VERSION = "compositional_query_v1"
 
 
@@ -123,13 +123,16 @@ def generate_compositional_queries(
             failures.append(_failure(candidate, 0, f"missing validated contracts: {missing}"))
             continue
 
-        messages = build_compositional_messages(candidate, contract_by_id)
+        messages = build_compositional_messages(candidate, contract_by_id, config)
         last_error = "generation did not return a valid payload"
         for attempt in range(1, config.max_attempts + 1):
+            attempt_messages = (
+                messages if attempt == 1 else [*messages, _retry_message(last_error)]
+            )
             try:
                 payload = _parse_json_object(
                     client.complete(
-                        messages,
+                        attempt_messages,
                         temperature=config.temperature,
                         max_new_tokens=config.max_new_tokens,
                     )
@@ -157,6 +160,7 @@ def generate_compositional_queries(
 def build_compositional_messages(
     candidate: dict[str, Any],
     contract_by_id: dict[str, dict[str, Any]],
+    config: CompositionalGenerationConfig,
 ) -> list[dict[str, str]]:
     skill_ids = candidate["skill_ids"]
     edge_lines = []
@@ -195,6 +199,7 @@ def build_compositional_messages(
                 [
                     "Write one natural English task for the validated multi-Skill candidate below.",
                     "The task must require all Skills, preserve the stated handoffs, and never name a Skill ID.",
+                    f"The query must contain {config.min_query_words} to {config.max_query_words} words.",
                     "Use this exact JSON schema:",
                     json.dumps(
                         {
@@ -220,6 +225,14 @@ def build_compositional_messages(
     ]
 
 
+def _retry_message(error: str) -> dict[str, str]:
+    return {
+        "role": "user",
+        "content": (
+            "The previous JSON was rejected by the deterministic validator: "
+            f"{error}. Regenerate the entire JSON object and correct that error."
+        ),
+    }
 def _validated_contracts(contracts: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     result = {}
     for contract in contracts:
