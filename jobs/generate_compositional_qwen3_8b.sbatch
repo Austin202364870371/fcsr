@@ -12,6 +12,7 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/data-nfs/gpu3/u13256401368/fcsr}"
 LIMIT="${LIMIT:-50}"
+OVERWRITE="${OVERWRITE:-0}"
 
 cd "$PROJECT_DIR"
 source "$(conda info --base)/etc/profile.d/conda.sh"
@@ -23,6 +24,12 @@ export TRANSFORMERS_OFFLINE=1
 
 mkdir -p "$PROJECT_DIR/logs"
 
-python -B scripts/generate_compositional_queries.py \
-  --model "$PROJECT_DIR/models/Qwen3-8B" \
+arguments=(
+  --model "$PROJECT_DIR/models/Qwen3-8B"
   --limit "$LIMIT"
+)
+if [[ "$OVERWRITE" == "1" ]]; then
+  arguments+=(--overwrite)
+fi
+
+python -B scripts/generate_compositional_queries.py "${arguments[@]}"
