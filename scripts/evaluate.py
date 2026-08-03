@@ -423,7 +423,7 @@ def _load_reranker(name_or_path: str, device: str) -> tuple[Any, Any, int, int]:
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except ImportError as exc:
-        raise RuntimeError("install requirements-train.txt for reranking") from exc
+        raise RuntimeError("install requirements.txt for reranking") from exc
     model_path = str(name_or_path)
     adapter = Path(model_path) / "adapter_config.json"
     base_path = model_path

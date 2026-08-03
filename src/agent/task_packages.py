@@ -143,7 +143,7 @@ def default_snapshot_downloader(**kwargs: Any) -> str:
         from huggingface_hub import snapshot_download
     except ImportError as exc:
         raise RuntimeError(
-            "huggingface_hub is required; install requirements-hard15.txt"
+            "huggingface_hub is required; install requirements.txt"
         ) from exc
     return str(snapshot_download(**kwargs))
 

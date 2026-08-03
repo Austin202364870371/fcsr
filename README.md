@@ -1,288 +1,174 @@
-# FCSR：面向功能与覆盖度的 Skill 检索器
+# FCSR：基于 Contract 的 Skill 检索与多 Skill 任务构造
 
-[English](README_EN.md) | **简体中文**
+**简体中文**
 
-FCSR（Function-aware Coverage Skill Retriever）是一个面向 Agent Skill 检索的轻量训练与评测框架，目标技能库规模约为 8 万条。项目沿用 SkillRouter 公开的检索数据格式和 Bi-Encoder/Reranker 两阶段架构，并引入基于原文证据的 **Skill Contract**，用于指导合成查询生成。
+FCSR（Function-aware Coverage Skill Retriever）是一个面向 Agent Skill 检索的研究框架。它以约 8 万条 Skill 为检索池，复现 SkillRouter 风格的 Bi-Encoder + Reranker 两阶段检索，并增加可审计的 **Skill Contract**：Contract 只作用于训练数据构造，部署时仍检索原始 Skill 的 `name + description + body`。
 
-Contract 只作为抽样训练正例的旁路结构化信息。部署时，编码器仍然索引原始 Skill 的 `name + description + body`，因此不需要对完整的 8 万条 Skill 全部调用 Contract 抽取 API。
+当前仓库包含三条边界清晰的工作流：
 
-## 整体流程
+1. 单 Skill 检索训练与 SR 兼容评测。
+2. Contract 引导的多 Skill 候选构造，尚未调用 LLM 编写多 Skill 自然语言任务。
+3. 独立的 Hard-15 Agent 规划实验，比较 Flat、Hierarchy 与 Evidence Graph 组织方式。
 
-```text
-Easy 自然技能池
-  -> 避开评测答案的类别 × 语言分层抽样（8,000 条）
-  -> 使用 DeepSeek 抽取 Contract V2
-  -> 基于 Contract 生成合成查询
-  -> 挖掘 BM25 + 同类别 + 随机负样本
-  -> 使用 Qwen 挖掘语义负样本并过滤假负例
-  -> 使用 InfoNCE 训练 Bi-Encoder
-  -> 使用训练后的 Bi-Encoder 构造 Top-20 候选组
-  -> 使用 Listwise Loss 训练 Reranker
-  -> 在 Easy/Hard 技能池上完成检索、重排和 SR 兼容评测
-```
+## 状态与边界
 
-Hard 技能池只用于评测。它包含 Easy 自然技能池以及额外的基准干扰项。
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| Contract V2 抽取 | 已实现 | 证据偏移、来源哈希和 schema 均在本地校验。 |
+| 单 Skill 合成查询 | 已生成 | `single_v1` 中有 7,342 条 query。 |
+| 多 Skill 候选 | 已生成 | 497 个 pair、51 个 triple；仅有 Contract 规则证据。 |
+| 多 Skill LLM 任务编写 | 未实现 | 下一阶段只应消费已验证候选。 |
+| Bi-Encoder / Reranker 训练 | 已实现 | Qwen + LoRA，支持 dry-run。 |
+| Hard-15 端到端任务执行 | 未实现 | 当前评估的是规划质量，不报告任务成功率。 |
 
-## 项目结构
+## 快速开始
 
-```text
-configs/              路径、阈值及适配 RTX 4090 的默认配置
-scripts/              数据预处理、训练和评测入口
-src/                  扁平化的可复用模块，不再嵌套 Python 包
-tests/                使用伪 API 客户端的离线单元测试
-data/raw/             75 条评测查询以及 Easy/Hard 技能池
-data/contracts/       8K 抽样结果、Contract、失败记录和清单
-data/processed/       中间检索结果和待复核样本
-data/synthetic/       合成查询及训练数据
-checkpoints/           LoRA 或全量微调检查点
-reports/               SR 兼容的指标汇总和逐任务结果
-```
-
-磁盘上的目录名全部使用小写，例如 `tests/` 和 `data/`。上面的缩进仅用于说明层级。
-
-## 1. 本地环境准备
-
-在本地计算机的 `fcsr` 根目录执行：
+要求 Python 3.10 或更高版本。以下命令从仓库根目录执行。
 
 ```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 $env:PYTHONPATH = "src"
 python -B -m unittest discover -s tests -v
 ```
 
-如果本地没有安装 PyTorch，4 个训练数值测试会自动跳过，其余测试仍会正常执行。安装 `requirements-train.txt` 后，这些测试会自动恢复。
+在 CUDA 主机上，优先按 [PyTorch 官方说明](https://pytorch.org/get-started/locally/) 安装与 CUDA 匹配的 PyTorch，再安装这份 `requirements.txt`。
 
-项目需要以下原始数据：
+## 依赖
 
-```text
-data/raw/evaluation_queries.jsonl.gz   整理后的 75 条计分任务
-data/raw/skills_easy.jsonl.gz          包含 78,361 条 Skill 的自然技能池
-data/raw/skills_hard.jsonl.gz          包含 79,141 条 Skill 的困难技能池
-```
+项目只保留一份 `requirements.txt`，覆盖预处理、Qwen 训练、检索评测和 Hard-15 规划实验。
 
-## 2. 在本地分层抽样 8,000 条 Skill
+## 数据布局
 
-```powershell
-python -B scripts/preprocess.py sample `
-  --skills data/raw/skills_easy.jsonl.gz `
-  --tasks data/raw/evaluation_queries.jsonl.gz `
-  --sample-size 8000 --seed 42 `
-  --output-dir data/contracts --overwrite
-```
-
-输出文件：
+大型逐行记录统一使用 `.jsonl.gz`；项目的 `data_io` 与所有脚本可直接读取，无需手动解压。
 
 ```text
-data/contracts/sample_skills.jsonl.gz
-data/contracts/manifest.json
+data/raw/
+  evaluation_queries.jsonl.gz        # 75 个公开评测任务
+  skills_easy.jsonl.gz               # 78,361 条 Easy Skill
+  skills_hard.jsonl.gz               # 79,141 条 Hard Skill
+
+data/contracts/
+  sample_skills.jsonl.gz             # benchmark-safe 的 8,000 条抽样
+  contracts.jsonl.gz                 # 7,995 条 Contract
+  failures.jsonl.gz
+
+data/synthetic/
+  single_v1/                          # 7,342 条单 Skill 训练记录
+    manifest.json
+    queries.jsonl.gz
+    local_negatives.jsonl.gz
+    train_biencoder.jsonl.gz
+    train_reranker.jsonl.gz
+  compositional_v1/                   # 多 Skill 构造阶段
+    manifest.json
+    candidates.jsonl.gz               # 497 pair + 51 triple
+    candidate_rejections.jsonl.gz
 ```
 
-抽样器会排除评测集中所有 GT/relevance Skill，删除内容完全相同的重复项，并按照类别与语言分层执行确定性的平方根配额分配。
+`manifest.json` 是版本索引与可复现记录：它保存输入路径、候选构造参数、各产物数量和当前阶段状态。大数据文件默认不提交 Git，版本清单会提交。
 
-## 3. 使用 DeepSeek V4 Flash 抽取 Contract V2
+## 配置
 
-在项目根目录的 `.env` 文件中填写 DeepSeek API Key：
+- [configs/base.yaml](configs/base.yaml)：数据路径、Contract 与检索超参数。
+- [configs/model_qwen3_0_6b.yaml](configs/model_qwen3_0_6b.yaml)：Qwen 0.6B 模型和 LoRA 训练默认值。
+- [configs/paths_autodl.yaml](configs/paths_autodl.yaml)：AutoDL 路径参考。
+
+本地调用 DeepSeek 前，创建未提交的 `.env`：
 
 ```dotenv
-DEEPSEEK_API_KEY=你的真实 API Key
+DEEPSEEK_API_KEY=your-key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
-程序会自动读取该文件，但不会覆盖已经在终端中设置的同名环境变量。`.env` 已加入 `.gitignore`，不得提交或上传到服务器；README 提供的 `scp` 命令也不会包含它。
+## 单 Skill 数据管线
 
-默认模型为 [`deepseek-v4-flash`](https://api-docs.deepseek.com/news/news260424/)，API 地址仍为 `https://api.deepseek.com`。建议先测试 3 条数据：
+### 1. 抽样
+
+```powershell
+python -B scripts/preprocess.py sample --overwrite
+```
+
+抽样会排除 benchmark 的 GT / relevance Skill、去除正文完全重复项，并按类别和语言做确定性分层。
+
+### 2. 抽取 Contract
+
+先用小批量验证 API、schema 和证据对齐：
 
 ```powershell
 python -B scripts/preprocess.py contracts --limit 3
-```
-
-检查 `data/contracts/contracts.jsonl.gz` 和 `data/contracts/failures.jsonl.gz`。确认无误后，去掉 `--limit` 继续处理完整样本：
-
-```powershell
 python -B scripts/preprocess.py contracts
 ```
 
-已完成的 `(skill_id, source_hash)` 会自动跳过。每个语义字段都必须引用原始 Skill 中的精确文本；证据偏移量和哈希由代码计算，并通过 `src/contract_schema.py` 校验。
-
-## 4. 生成基于 Contract 的查询
-
-同样先测试 3 条，再继续处理全部有效 Contract：
+### 3. 生成单 Skill query 与本地负例
 
 ```powershell
 python -B scripts/preprocess.py queries --limit 3
 python -B scripts/preprocess.py queries
+python -B scripts/preprocess.py local-negatives --overwrite
 ```
 
-运行时会显示 `Queries` 进度条以及 `ok`、`skip`、`fail` 计数；在日志任务中可添加 `--no-progress` 关闭动态输出。
-
-输出为 `data/synthetic/single_v1/queries.jsonl.gz`。Query Prompt V5 要求每条查询为 80--180 个英文词，并把 Contract 中的 operations、outputs、constraints 和 quality criteria 作为交付动作白名单；周边业务只能作为已经存在的场景背景。词数不合格、泄露 Skill 名称、JSON 格式无效或者缺少当前有效 Contract 的查询会被拒绝或重试，并在适用时写入失败记录。
-
-### Contract 引导的多 Skill 候选
-
-候选构造不调用 LLM。它只保留已验证且与单 Skill query `source_hash` 一致的 Contract，要求上游 `outputs` 与下游必需 `inputs` 在 artifact 层面精确或高重叠匹配，并记录被拒绝组合的原因：
-
-```powershell
-python -B scripts/build_compositional_candidates.py
-```
-
-输出为 `data/synthetic/compositional_v1/candidates.jsonl.gz`、`candidate_rejections.jsonl.gz` 和更新后的 `manifest.json`。下一阶段仅对这些候选调用 LLM 生成自然语言任务与有序子任务。
-
-## 5. 挖掘本地负样本
-
-```powershell
-python -B scripts/preprocess.py local-negatives `
-  --queries data/synthetic/single_v1/queries.jsonl.gz `
-  --skills data/raw/skills_easy.jsonl.gz `
-  --output data/synthetic/single_v1/local_negatives.jsonl.gz `
-  --seed 42 --overwrite
-```
-
-终端会依次显示读取 Skill、构建 BM25 索引和逐 Query 挖掘三个阶段；进入挖掘阶段后显示处理数量、速度和 ETA。日志任务可添加 `--no-progress` 关闭动态输出。
-
-在经过 Skill 身份、标准化名称、完全相同正文和字符三元组假负例过滤后，每条数据最多获得 `3 个 BM25 + 2 个同类别 + 1 个随机` 候选负样本。
-
-## 6. 上传到 AutoDL
-
-上传代码框架和本地生成的数据。服务器可以继续使用已经存在的原始数据集：
-
-```powershell
-scp -P 42112 -r configs scripts src requirements.txt requirements-train.txt README.md README_EN.md `
-  root@connect.westb.seetacloud.com:/root/autodl-tmp/fcsr/
-scp -P 42112 -r data/contracts data/synthetic `
-  root@connect.westb.seetacloud.com:/root/autodl-tmp/fcsr/data/
-```
-
-## 7. 配置 AutoDL 并下载模型
-
-在 AutoDL 服务器执行：
-
-```bash
-cd /root/autodl-tmp/fcsr
-pip install -r requirements-train.txt
-mkdir -p /root/autodl-tmp/models
-hf download Qwen/Qwen3-Embedding-0.6B --local-dir /root/autodl-tmp/models/Qwen3-Embedding-0.6B
-hf download Qwen/Qwen3-Reranker-0.6B --local-dir /root/autodl-tmp/models/Qwen3-Reranker-0.6B
-```
-
-这是项目唯一需要下载模型的步骤，不要在只负责数据预处理的本地计算机上执行。
-
-## 8. 在 AutoDL 上挖掘语义负样本
+### 4. GPU 语义负例与 Bi-Encoder 训练
 
 ```bash
 python -B scripts/preprocess.py semantic-negatives \
-  --local data/synthetic/single_v1/local_negatives.jsonl.gz \
-  --skills data/raw/skills_easy.jsonl.gz \
-  --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
-  --output data/synthetic/single_v1/train_biencoder.jsonl.gz \
-  --review data/processed/contract_fn_review.jsonl.gz \
-  --top-k 50 --threshold 0.95 --batch-size 8 --overwrite
-```
-
-最终每条训练数据最多包含 `4 个语义负例 + 3 个 BM25 负例 + 2 个同类别负例 + 1 个随机负例`。与正例嵌入相似度过高的候选会被过滤，并导出供人工复核。
-
-## 9. 训练 Bi-Encoder
-
-先在不加载模型的情况下校验训练数据：
-
-```bash
+  --model Qwen/Qwen3-Embedding-0.6B --device cuda --overwrite
 python -B scripts/train_biencoder.py --dry-run
-```
-
-使用默认的 RTX 4090 安全 LoRA 配置开始训练：
-
-```bash
 python -B scripts/train_biencoder.py \
-  --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
+  --model Qwen/Qwen3-Embedding-0.6B \
   --output-dir checkpoints/fcsr-emb-0.6b
 ```
 
-默认配置为：训练 1 个 epoch、micro-batch 为 1、梯度累积 16 步、BF16、梯度检查点，以及 0.05 的 InfoNCE 温度。正式训练会显示当前 epoch、已完成 batch、实时 loss、速度和 ETA。若希望更接近 SkillRouter 的全量微调方式，可以使用 `--method full`，但显存和训练成本会更高。
-
-## 10. 构造 Top-20 候选组并训练 Reranker
-
-使用训练后的 Bi-Encoder 检索合成查询：
+### 5. 构建 reranker 组并训练
 
 ```bash
 python -B scripts/evaluate.py retrieve \
   --queries data/synthetic/single_v1/queries.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model checkpoints/fcsr-emb-0.6b \
-  --top-k 20 --batch-size 8 \
   --output-predictions data/processed/synthetic_top20.json \
   --output-records data/processed/synthetic_top20.jsonl.gz
-```
 
-构造有序候选组并校验：
-
-```bash
-python -B scripts/train_reranker.py prepare \
-  --retrieval data/processed/synthetic_top20.jsonl.gz \
-  --skills data/raw/skills_easy.jsonl.gz \
-  --output data/synthetic/single_v1/train_reranker.jsonl.gz --top-k 20 --overwrite
+python -B scripts/train_reranker.py prepare --overwrite
 python -B scripts/train_reranker.py train --dry-run
-```
-
-开始训练：
-
-```bash
 python -B scripts/train_reranker.py train \
-  --model /root/autodl-tmp/models/Qwen3-Reranker-0.6B \
+  --model Qwen/Qwen3-Reranker-0.6B \
   --output-dir checkpoints/fcsr-rank-0.6b
 ```
 
-Listwise Loss 会将概率质量分配给候选组中的全部有效正例，并拒绝不包含任何正例的候选组。
+reranker 数据只保存候选元数据；训练时会从原始 Skill 重建 prompt，避免重复存储十余万份长文本。
 
-## 10.1 无需训练的检索 Baseline
+## 多 Skill 候选构造
 
-以下三条 baseline 与 FCSR 使用完全相同的 75 个任务、Easy/Hard 候选池和 `description=300`、`body=2500` 的 Skill 截断。每个方法使用独立报告目录，避免 summary 被覆盖。
+这一步不调用 LLM。候选生成器只保留：
 
-```bash
-mkdir -p reports/baselines/{bm25,dense,hybrid}
+- `validated` Contract；
+- 与单 Skill query `source_hash` 一致的 Skill；
+- 不属于 benchmark 的 Skill；
+- 上游 `outputs` 到下游必需 `inputs` 的完整或高重叠 artifact 交接；
+- 满足操作互补的有向 pair，以及由两条有向边组成的 triple。
 
-for tier in easy hard; do
-  python -B scripts/evaluate.py bm25 \
-    --queries data/raw/evaluation_queries.jsonl.gz \
-    --skills data/raw/skills_${tier}.jsonl.gz --top-k 50 \
-    --output-predictions reports/baselines/bm25/retrieval_${tier}.json \
-    --output-records reports/baselines/bm25/retrieval_${tier}.jsonl
-  python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl.gz \
-    --skills data/raw/skills_${tier}.jsonl.gz \
-    --predictions reports/baselines/bm25/retrieval_${tier}.json \
-    --stage retrieval --tier ${tier} --output-dir reports/baselines/bm25
-
-  python -B scripts/evaluate.py retrieve \
-    --queries data/raw/evaluation_queries.jsonl.gz \
-    --skills data/raw/skills_${tier}.jsonl.gz \
-    --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
-    --top-k 50 --batch-size 8 --skill-max-length 2048 \
-    --output-predictions reports/baselines/dense/retrieval_${tier}.json \
-    --output-records reports/baselines/dense/retrieval_${tier}.jsonl
-  python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl.gz \
-    --skills data/raw/skills_${tier}.jsonl.gz \
-    --predictions reports/baselines/dense/retrieval_${tier}.json \
-    --stage retrieval --tier ${tier} --output-dir reports/baselines/dense
-
-  python -B scripts/evaluate.py hybrid \
-    --queries data/raw/evaluation_queries.jsonl.gz \
-    --skills data/raw/skills_${tier}.jsonl.gz \
-    --model /root/autodl-tmp/models/Qwen3-Embedding-0.6B \
-    --top-k 50 --fusion-depth 100 --rrf-k 60 \
-    --batch-size 8 --skill-max-length 2048 \
-    --output-predictions reports/baselines/hybrid/retrieval_${tier}.json \
-    --output-records reports/baselines/hybrid/retrieval_${tier}.jsonl
-  python -B scripts/evaluate.py score \
-    --tasks data/raw/evaluation_queries.jsonl.gz \
-    --skills data/raw/skills_${tier}.jsonl.gz \
-    --predictions reports/baselines/hybrid/retrieval_${tier}.json \
-    --stage retrieval --tier ${tier} --output-dir reports/baselines/hybrid
-done
+```powershell
+python -B scripts/build_compositional_candidates.py
 ```
 
-BM25 不使用 GPU；Dense 与 Hybrid 使用基础 Qwen3-Embedding-0.6B，不加载任何 FCSR LoRA。Hybrid 通过固定的 reciprocal-rank fusion（`RRF k=60`）融合 BM25 与 Dense 的各自 Top-100 排名；该参数不在 75 条测试任务上调优。
-## 11. 在 Easy 和 Hard 技能池上评测
+若需按新阈值重建，显式覆盖已有文件：
 
-每个技能池都需要先导出检索 Top-50，再重排前 20 个候选，最后计算指标。以下为 Easy 技能池示例：
+```powershell
+python -B scripts/build_compositional_candidates.py `
+  --max-artifact-frequency 5 `
+  --max-pairs-per-source 16 `
+  --overwrite
+```
+
+拒绝样本不会丢弃，而是写入 `candidate_rejections.jsonl.gz`，包含 `missing_or_stale_single_skill_query`、`weak_artifact_handoff`、`missing_complementary_operation` 等原因。下一阶段的 LLM 只负责把这些候选写成用户任务、子任务序列和依赖 DAG，不能自行发明 Skill 组合。
+
+## 检索与评测
+
+以下示例运行 Easy pool；替换为 `skills_hard.jsonl.gz` 并使用 `--tier hard` 即可评测 Hard pool。
 
 ```bash
 python -B scripts/evaluate.py retrieve \
@@ -291,17 +177,14 @@ python -B scripts/evaluate.py retrieve \
   --model checkpoints/fcsr-emb-0.6b --top-k 50 \
   --output-predictions reports/retrieval_easy.json \
   --output-records reports/retrieval_easy.jsonl
+
 python -B scripts/evaluate.py rerank \
   --retrieval-records reports/retrieval_easy.jsonl \
   --skills data/raw/skills_easy.jsonl.gz \
   --model checkpoints/fcsr-rank-0.6b --top-k 20 \
   --output-predictions reports/reranker_easy.json \
   --output-records reports/reranker_easy.jsonl
-python -B scripts/evaluate.py score \
-  --tasks data/raw/evaluation_queries.jsonl.gz \
-  --skills data/raw/skills_easy.jsonl.gz \
-  --predictions reports/retrieval_easy.json \
-  --stage retrieval --tier easy
+
 python -B scripts/evaluate.py score \
   --tasks data/raw/evaluation_queries.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
@@ -309,29 +192,35 @@ python -B scripts/evaluate.py score \
   --stage reranker --tier easy
 ```
 
-评测 Hard 技能池时，将技能文件替换为 `skills_hard.jsonl`，将 `--tier` 改为 `hard`，并将输出文件名中的 `*_easy.*` 改为 `*_hard.*`。
+评测遵循 SkillRouter 兼容协议：过滤 `generic_only`，将 GT/relevance 与当前 Skill pool 取交集，报告整体、single-skill、multi-skill、FullCoverage 和分级 relevance nDCG。
 
-计分流程与 SkillRouter 保持一致：排除 `generic_only` 任务，将 GT/relevance 与当前技能池取交集，使用分级 relevance 计算 nDCG，并分别报告整体、single-skill、multi-skill 和 FullCoverage 指标。
+## Hard-15 Agent 规划实验
 
-## 方法范围
+Hard-15 消费 FCSR 的 Hard pool Top-20，比较 Flat、Hierarchy、Evidence Graph 三种组织方式，并用 DeepSeek 输出 Pydantic 校验后的规划 JSON。
 
-公开的 [SkillRouter 仓库](https://github.com/zhengyanzhao1997/SkillRouter) 以 MIT 许可证发布了基准数据以及推理和评测代码，但没有发布训练数据预处理脚本。FCSR 保留了其公开的数据格式、池化方法、评测指标、Top-20 候选组和两阶段训练约定；本项目中的负样本挖掘与训练代码则依据论文描述重新实现。
-
-考虑项目预算，FCSR 与论文方案存在以下差异：
-
-1. 分层抽样 8,000 个正例，而不是生成 37,979 个合成训练对。
-2. 默认使用 LoRA，同时保留成本更高的全量微调选项。
-3. Contract 只对抽样正例进行抽取；可疑假负例会导出供人工复核，不再额外调用付费 LLM 自动判断。
-### Reranker 显存预检
-
-`train_reranker.py train` 会在正式训练前扫描所有候选组，选择 token 化后最长的一组完成一次不更新参数的 forward/backward 预检。预检通过后，训练流程与原来一致；若预检 OOM，请降低 `--max-length` 后重新运行。
-
-对 24GB RTX 4090，建议：
-
-```bash
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-python -B scripts/train_reranker.py train \
-  --model /root/autodl-tmp/models/Qwen3-Reranker-0.6B \
-  --output-dir checkpoints/fcsr-rank-0.6b \
-  --max-length 1536
+```powershell
+$env:PYTHONPATH = "src"
+python -B scripts/run_hard15_experiment.py --sync --dry-run
+python -B scripts/run_hard15_experiment.py
 ```
+
+结果写入 `reports/agent/hard15/`。该实验当前只报告计划有效性、GT 覆盖、token 和结构指标；完整 SkillsBench 环境和 verifier 未接入前，不能将结果解释为端到端任务成功率。详见 [HARD15_RUN.md](HARD15_RUN.md)。
+
+## 常用命令
+
+```powershell
+# 列出所有入口的参数
+python -B scripts/preprocess.py --help
+python -B scripts/build_compositional_candidates.py --help
+python -B scripts/train_biencoder.py --help
+python -B scripts/train_reranker.py --help
+python -B scripts/evaluate.py --help
+
+# 运行完整离线回归
+$env:PYTHONPATH = "src"
+python -B -m unittest discover -s tests -v
+```
+
+## 研究关系
+
+FCSR 使用 SkillRouter 公开的数据格式、池化方式、检索/重排指标和两阶段训练约定；Contract、负例构造与多 Skill 候选构造是本项目新增的可审计数据工程层。SkillRouter 本身不提供本仓库的预处理和训练数据构造实现。

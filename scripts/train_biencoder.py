@@ -160,7 +160,7 @@ def train(
         from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup
     except ImportError as exc:
         raise RuntimeError(
-            "training dependencies are missing; install requirements-train.txt"
+            "training dependencies are missing; install requirements.txt"
         ) from exc
     if not examples:
         raise ValueError("training data contains no examples")

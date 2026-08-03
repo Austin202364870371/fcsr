@@ -18,7 +18,7 @@ TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
 class ModelingFormatTests(unittest.TestCase):
     @unittest.skipUnless(
         TORCH_AVAILABLE,
-        "requires PyTorch; install requirements-train.txt",
+        "requires PyTorch; install requirements.txt",
     )
     def test_last_token_pool_supports_right_padding(self) -> None:
         self._assert_pooling(
@@ -28,7 +28,7 @@ class ModelingFormatTests(unittest.TestCase):
 
     @unittest.skipUnless(
         TORCH_AVAILABLE,
-        "requires PyTorch; install requirements-train.txt",
+        "requires PyTorch; install requirements.txt",
     )
     def test_last_token_pool_supports_left_padding(self) -> None:
         self._assert_pooling(

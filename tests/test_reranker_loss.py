@@ -68,7 +68,7 @@ class RerankerTests(unittest.TestCase):
 
     @unittest.skipUnless(
         TORCH_AVAILABLE,
-        "requires PyTorch; install requirements-train.txt",
+        "requires PyTorch; install requirements.txt",
     )
     def test_listwise_loss_rewards_positive_scores_and_supports_multi_positive(self) -> None:
         code = """

@@ -289,7 +289,7 @@ def train(
         )
     except ImportError as exc:
         raise RuntimeError(
-            "training dependencies are missing; install requirements-train.txt"
+            "training dependencies are missing; install requirements.txt"
         ) from exc
     if not groups:
         raise ValueError("reranker training data contains no groups")

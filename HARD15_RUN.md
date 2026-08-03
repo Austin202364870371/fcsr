@@ -31,7 +31,7 @@ Graph 只建立两类可审计边：正文明确提到另一个候选时的
 
 ```powershell
 conda activate agent-learn
-pip install -r requirements-hard15.txt
+pip install -r requirements.txt
 ```
 
 现有 `.env` 可以直接使用：

@@ -92,7 +92,7 @@ def load_embedding_model(
         from transformers import AutoModel, AutoTokenizer
     except ImportError as exc:
         raise RuntimeError(
-            "transformers is required for model loading; install requirements-train.txt"
+            "transformers is required for model loading; install requirements.txt"
         ) from exc
     model_path = str(name_or_path)
     adapter_config = Path(model_path) / "adapter_config.json"
@@ -142,7 +142,7 @@ def encode_texts(
         import torch.nn.functional as functional
     except ImportError as exc:
         raise RuntimeError(
-            "torch is required for encoding; install requirements-train.txt"
+            "torch is required for encoding; install requirements.txt"
         ) from exc
     if max_length <= 0 or batch_size <= 0:
         raise ValueError("max_length and batch_size must be positive")
@@ -228,7 +228,7 @@ def info_nce_loss(
         import torch.nn.functional as functional
     except ImportError as exc:
         raise RuntimeError(
-            "torch is required for InfoNCE; install requirements-train.txt"
+            "torch is required for InfoNCE; install requirements.txt"
         ) from exc
     if query_embeddings.ndim != 2 or document_embeddings.ndim != 2:
         raise ValueError("embeddings must be 2D tensors")
@@ -363,7 +363,7 @@ def listwise_cross_entropy(scores: Any, positive_mask: Any) -> Any:
         import torch
     except ImportError as exc:
         raise RuntimeError(
-            "torch is required for listwise loss; install requirements-train.txt"
+            "torch is required for listwise loss; install requirements.txt"
         ) from exc
     if scores.shape != positive_mask.shape:
         raise ValueError("scores and positive_mask must have the same shape")
