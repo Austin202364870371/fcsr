@@ -1,10 +1,17 @@
 import unittest
+
+import numpy as np
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from data_io import stream_jsonl, write_jsonl_atomic
-from scripts.build_rq1_mixed_training import build_manifest, build_parser, run
+from scripts.build_rq1_mixed_training import (
+    build_manifest,
+    build_parser,
+    filter_semantic_false_negatives,
+    run,
+)
 
 
 class BuildRq1MixedTrainingScriptTests(unittest.TestCase):
@@ -15,6 +22,39 @@ class BuildRq1MixedTrainingScriptTests(unittest.TestCase):
         self.assertEqual(args.output_dir, Path("data/training/rq1-mixed-3x"))
         self.assertEqual(args.semantic_top_k, 64)
 
+    def test_semantic_filter_rejects_candidates_close_to_any_positive(self) -> None:
+        candidates = [
+            {"skill_id": "dev/near-a", "score": 0.9},
+            {"skill_id": "dev/near-b", "score": 0.8},
+            {"skill_id": "dev/far", "score": 0.7},
+        ]
+        skill_embeddings = np.array(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.99, 0.01],
+                [0.01, 0.99],
+                [0.7, 0.7],
+            ],
+            dtype=np.float32,
+        )
+        index_by_id = {
+            "dev/a": 0,
+            "dev/b": 1,
+            "dev/near-a": 2,
+            "dev/near-b": 3,
+            "dev/far": 4,
+        }
+
+        kept = filter_semantic_false_negatives(
+            candidates,
+            ["dev/a", "dev/b"],
+            skill_embeddings,
+            index_by_id,
+            threshold=0.95,
+        )
+
+        self.assertEqual([item["skill_id"] for item in kept], ["dev/far"])
     def test_run_writes_directly_trainable_outputs(self) -> None:
         def make_skill(skill_id: str) -> dict:
             return {

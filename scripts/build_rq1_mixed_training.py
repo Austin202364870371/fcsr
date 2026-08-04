@@ -19,7 +19,7 @@ if str(SRC) not in sys.path:
 
 from data_io import stream_jsonl, write_jsonl_atomic
 from modeling import encode_texts, format_query, format_skill, load_embedding_model
-from retrieval import semantic_topk
+from retrieval import embedding_false_negative_filter, semantic_topk
 from rq1_training_data import build_mixed_training_records
 
 
@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--multiplier", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--semantic-top-k", type=int, default=64)
+    parser.add_argument("--semantic-fn-threshold", type=float, default=0.95)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--query-max-length", type=int, default=512)
     parser.add_argument("--skill-max-length", type=int, default=2048)
@@ -83,6 +84,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         skills,
         model_path=args.negative_model,
         semantic_top_k=args.semantic_top_k,
+        semantic_fn_threshold=args.semantic_fn_threshold,
         batch_size=args.batch_size,
         query_max_length=args.query_max_length,
         skill_max_length=args.skill_max_length,
@@ -120,6 +122,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         skills_path=args.skills,
         negative_model=args.negative_model,
         semantic_top_k=args.semantic_top_k,
+        semantic_fn_threshold=args.semantic_fn_threshold,
         multiplier=args.multiplier,
         seed=args.seed,
         counts=counts,
@@ -142,6 +145,7 @@ def mine_semantic_candidates(
     *,
     model_path: str,
     semantic_top_k: int,
+    semantic_fn_threshold: float,
     batch_size: int,
     query_max_length: int,
     skill_max_length: int,
@@ -150,11 +154,14 @@ def mine_semantic_candidates(
 ) -> dict[str, list[dict[str, Any]]]:
     if semantic_top_k <= 0:
         raise ValueError("semantic_top_k must be positive")
+    if not -1 <= semantic_fn_threshold <= 1:
+        raise ValueError("semantic_fn_threshold must be between -1 and 1")
     if not compositional:
         return {}
     if not Path(model_path).is_dir():
         raise FileNotFoundError(f"local negative model directory does not exist: {model_path}")
     skill_ids = [record.get("skill_id") for record in skills]
+    index_by_id = {skill_id: index for index, skill_id in enumerate(skill_ids)}
     if not all(isinstance(skill_id, str) and skill_id for skill_id in skill_ids):
         raise ValueError("skills must contain non-empty skill_id values")
     model, tokenizer = load_embedding_model(model_path, device=device)
@@ -195,12 +202,51 @@ def mine_semantic_candidates(
     candidates: dict[str, list[dict[str, Any]]] = {}
     for record, row_indices, row_scores in zip(compositional, indices, scores):
         query_id = record["query_id"]
-        candidates[query_id] = [
+        raw_candidates = [
             {"skill_id": skill_ids[index], "score": float(score)}
             for index, score in zip(row_indices.tolist(), row_scores.tolist())
         ]
+        positive_ids = record.get("positive_skill_ids")
+        if not isinstance(positive_ids, list):
+            raise ValueError("compositional query must contain positive_skill_ids")
+        candidates[query_id] = filter_semantic_false_negatives(
+            raw_candidates,
+            positive_ids,
+            skill_embeddings,
+            index_by_id,
+            threshold=semantic_fn_threshold,
+        )
     return candidates
 
+
+def filter_semantic_false_negatives(
+    candidates: list[dict[str, Any]],
+    positive_skill_ids: list[str],
+    skill_embeddings: Any,
+    index_by_id: dict[str, int],
+    *,
+    threshold: float,
+) -> list[dict[str, Any]]:
+    """Drop candidates highly similar to any true Skill in a composition."""
+    if not -1 <= threshold <= 1:
+        raise ValueError("threshold must be between -1 and 1")
+    kept = list(candidates)
+    candidate_embeddings = {
+        candidate["skill_id"]: skill_embeddings[index_by_id[candidate["skill_id"]]]
+        for candidate in candidates
+        if candidate.get("skill_id") in index_by_id
+    }
+    for positive_id in positive_skill_ids:
+        if not isinstance(positive_id, str) or positive_id not in index_by_id:
+            raise ValueError(f"positive skill not found for semantic filtering: {positive_id!r}")
+        filtered = embedding_false_negative_filter(
+            skill_embeddings[index_by_id[positive_id]],
+            kept,
+            candidate_embeddings,
+            threshold,
+        )
+        kept = filtered.kept
+    return kept
 
 def build_manifest(
     *,
@@ -213,6 +259,7 @@ def build_manifest(
     multiplier: int,
     seed: int,
     counts: dict[str, int],
+    semantic_fn_threshold: float = 0.95,
 ) -> dict[str, Any]:
     return {
         "schema_version": "rq1_mixed_training_v1",
@@ -227,6 +274,7 @@ def build_manifest(
         "negative_mining": {
             "semantic_model": negative_model,
             "semantic_top_k": semantic_top_k,
+            "semantic_fn_threshold": semantic_fn_threshold,
             "sources": {"semantic": 4, "bm25": 3, "same_category": 2, "random": 1},
             "multi_positive_policy": "exclude_every_positive_skill_id_from_negatives",
         },
