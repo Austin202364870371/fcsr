@@ -188,7 +188,13 @@ def build_biencoder_examples(
             raise ValueError(f"positive skill not found: {positive_id!r}")
         negative_ids = []
         negative_sources = []
-        seen = {positive_id}
+        all_positive_ids = {
+            skill_id
+            for skill_id in record.get("positive_skill_ids", [])
+            if isinstance(skill_id, str) and skill_id
+        }
+        all_positive_ids.add(positive_id)
+        seen = all_positive_ids
         for candidate in record.get("negative_candidates", []):
             skill_id = candidate.get("skill_id")
             if skill_id in seen:

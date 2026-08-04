@@ -19,7 +19,9 @@
 
 ## 多 Skill 扩展
 
-`data/synthetic/compositional_v1/` 已保存 497 个有向 pair 与 51 个 triple。候选只在有效 Contract、有效单 Skill query、非 benchmark、artifact 输出到必需输入交接和操作互补同时成立时保留；22,635 个拒绝项保留原因。本地 Qwen 生成器已实现：它只可把已验证候选写成任务、子任务和依赖，并以 JSON、Skill ID 顺序、source hash 与 DAG 校验拒绝越界输出。数据尚未在服务器生成。
+`data/synthetic/compositional_v1/` 已保存 497 个有向 pair 与 51 个 triple。候选只在有效 Contract、有效单 Skill query、非 benchmark、artifact 输出到必需输入交接和操作互补同时成立时保留；22,635 个拒绝项保留原因。本地 Qwen 生成器只可把已验证候选写成任务、子任务和依赖，并以 JSON、Skill ID 顺序、source hash 与 DAG 校验拒绝越界输出。
+
+已在服务器以本地 Qwen3-8B 完成一次全量生成：548 个候选中 541 条通过严格校验，7 条失败，448 条进入复核队列。训练阶段采用 `data/training/rq1-mixed-3x/`：保留 7,342 条单 Skill 数据，并按原始组合任务组做 3 倍确定性采样。每条组合任务会分别展开到其每个正例 Skill 的 Bi-Encoder 样本，同时在同一条记录中保留完整 `positive_skill_ids`；所有正例均从负例候选中排除。Reranker 保持一条组合任务一个多标签 group。
 
 ## 对照与判据
 
@@ -29,11 +31,11 @@
 
 ## 下一步
 
-1. 从候选生成严格校验的 `compositional_queries.jsonl.gz`。
-2. 按 query 目标数采样组合，不以修复所有 Contract 失败项为前提。
-3. 以相同预算进行单 Skill 与混合训练消融。
+1. 用 `scripts/build_rq1_mixed_training.py` 构建可训练的混合数据；541 条组合任务在 3 倍采样下产生 3,399 条多 Skill Bi-Encoder 样本与 1,623 个多标签 Reranker group。
+2. 以相同训练预算完成单 Skill 基线与混合训练消融，并冻结随机种子、底座模型和候选池。
+3. 对 448 条复核队列进行抽样审计，报告结构通过率之外的组合语义质量。
 4. 将任务级结果和冻结配置写入 `reports/` 后再给出结论。
 
 ## 入口
 
-`scripts/preprocess.py`、`scripts/build_compositional_candidates.py`、`scripts/train_biencoder.py`、`scripts/train_reranker.py`、`scripts/evaluate.py`、`configs/base.yaml`。
+`scripts/preprocess.py`、`scripts/build_compositional_candidates.py`、`scripts/generate_compositional_queries.py`、`scripts/build_rq1_mixed_training.py`、`scripts/train_biencoder.py`、`scripts/train_reranker.py`、`scripts/evaluate.py`、`configs/base.yaml`。
