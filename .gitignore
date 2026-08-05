@@ -10,8 +10,14 @@ data/synthetic/*/*
 !data/synthetic/*/manifest.json
 data/processed/
 data/index/
+data/training/
 
 checkpoints/
 reports/
+models/
+logs/
+.cache/
+.vscode/
+env-qgen/
 docs/*
 !docs/rq*.md
