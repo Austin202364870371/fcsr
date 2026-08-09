@@ -25,11 +25,11 @@ FCSR（Function-aware Coverage Skill Retriever）是一个面向 Agent Skill 检
 
 项目按五个研究问题组织，文档会明确区分已实现的资产、待验证的实验和可报告的结论：
 
-1. [RQ1：大规模 Skill 检索](docs/rq1-skill-retrieval.md)
-2. [检索后 Skill 的组织实验](docs/skill-organization.md)
-3. [RQ3：Agent 规划](docs/rq3-agent-planning.md)
-4. [RQ4：Agent Reflection](docs/rq4-agent-reflection.md)
-5. [RQ5：Agent 评估](docs/rq5-agent-evaluation.md)
+1. RQ1：大规模 Skill 检索
+2. 检索后 Skill 的组织实验
+3. RQ3：Agent 规划
+4. RQ4：Agent Reflection
+5. RQ5：Agent 评估
 ## 快速开始
 
 要求 Python 3.10 或更高版本。以下命令从仓库根目录执行。
@@ -213,7 +213,7 @@ python -B scripts/evaluate.py score \
 
 ## Hard-15 Skill 组织实验
 
-新的端到端实验固定 `fcsr-multiskill3x-rrf` 的每任务 Top-8，向 SkillsBench Agent 注入相同的 SkillRouter Hard JSONL 文本载荷，并比较 No Skill、Flat、Hierarchy 和 Evidence Graph。旧的 planning-only 管线已经移除；实验约束、输入指纹、泄漏控制、Skill 打包方式和验收标准见 [Hard-15 Skill 组织实验](docs/skill-organization.md)。
+新的端到端实验固定 `fcsr-multiskill3x-rrf` 的每任务 Top-8，向 SkillsBench Agent 注入相同的 SkillRouter Hard JSONL 文本载荷，并比较 No Skill、Flat、Hierarchy 和 Evidence Graph。旧的 planning-only 管线已经移除；实验约束、输入指纹、泄漏控制、Skill 打包方式和验收标准保存在本地实验文档中。
 
 ## 常用命令
 
