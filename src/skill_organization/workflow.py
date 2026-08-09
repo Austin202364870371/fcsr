@@ -11,11 +11,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from pydantic import ValidationError
+
 from data_io import stream_jsonl, write_jsonl_atomic
 from skill_organization.inputs import load_frozen_inputs, sha256_file
 from skill_organization.models import FrozenInputs, TaskInput
 from skill_organization.organizer import (
     OrganizerClient,
+    OrganizerReply,
     OrganizationBundle,
     build_organizer_messages,
     validate_bundle,
@@ -52,6 +55,7 @@ EXPECTED_SANDBOX_PACKAGES = {
     "python-engineio": "4.13.4",
     "aiohttp": "3.14.3",
 }
+MAX_ORGANIZER_ATTEMPTS = 3
 
 
 def _json_bytes(value: object) -> bytes:
@@ -270,6 +274,30 @@ def _bundle_paths(run_dir: Path, task_key: str) -> tuple[Path, Path]:
     return base / "hierarchy" / f"{task_key}.json", base / "graph" / f"{task_key}.json"
 
 
+def _validation_feedback(error: ValidationError | ValueError) -> str:
+    if isinstance(error, ValidationError):
+        messages = []
+        for detail in error.errors(
+            include_url=False, include_context=False, include_input=False
+        ):
+            location = ".".join(str(part) for part in detail["loc"]) or "response"
+            messages.append(
+                f"{location}: {detail['msg']} ({detail['type']})"
+            )
+        return "\n".join(messages)
+    return f"bundle: {error}"
+
+
+def _next_attempt_index(attempt_dir: Path) -> int:
+    indices = []
+    for path in attempt_dir.glob("attempt-*.json"):
+        try:
+            indices.append(int(path.stem.removeprefix("attempt-")))
+        except ValueError:
+            continue
+    return max(indices, default=0) + 1
+
+
 def _write_reviewer_packet(
     run_dir: Path, task: TaskInput, bundle: OrganizationBundle
 ) -> None:
@@ -334,9 +362,59 @@ def organize_run(
             run_dir / "preprocessing" / "organizer_requests" / f"{task.task_key}.json"
         )
         write_json_atomic(request_path, request)
-        reply = client.organize(task_key=task.task_key, skills=skills)
-        bundle = reply.parse_bundle()
-        validate_bundle(task, bundle)
+        attempt_dir = (
+            run_dir / "preprocessing" / "organizer_attempts" / task.task_key
+        )
+        first_attempt = _next_attempt_index(attempt_dir)
+        validation_feedback: str | None = None
+        accepted: tuple[int, OrganizationBundle, OrganizerReply] | None = None
+        for offset in range(MAX_ORGANIZER_ATTEMPTS):
+            attempt_index = first_attempt + offset
+            attempt_messages = build_organizer_messages(
+                task_key=task.task_key,
+                skills=skills,
+                validation_feedback=validation_feedback,
+            )
+            reply = client.organize(
+                task_key=task.task_key,
+                skills=skills,
+                validation_feedback=validation_feedback,
+            )
+            error_text: str | None = None
+            bundle: OrganizationBundle | None = None
+            try:
+                bundle = reply.parse_bundle()
+                validate_bundle(task, bundle)
+            except (ValidationError, ValueError) as error:
+                error_text = _validation_feedback(error)
+            write_json_atomic(
+                attempt_dir / f"attempt-{attempt_index:03d}.json",
+                {
+                    "task_key": task.task_key,
+                    "attempt": attempt_index,
+                    "model": model,
+                    "endpoint": endpoint,
+                    "prompt_sha256": hash_json(attempt_messages),
+                    "validation_feedback": validation_feedback,
+                    "usage": reply.usage,
+                    "content": reply.content,
+                    "response_sha256": hashlib.sha256(
+                        reply.content.encode("utf-8")
+                    ).hexdigest(),
+                    "valid": error_text is None,
+                    "validation_error": error_text,
+                },
+            )
+            if bundle is not None and error_text is None:
+                accepted = (attempt_index, bundle, reply)
+                break
+            validation_feedback = error_text
+        if accepted is None:
+            raise ValueError(
+                f"organizer {task.task_key} failed strict validation after "
+                f"{MAX_ORGANIZER_ATTEMPTS} attempts; see {attempt_dir}"
+            )
+        accepted_attempt, bundle, reply = accepted
         write_json_atomic(hierarchy_path, bundle.hierarchy.model_dump(mode="json"))
         write_json_atomic(graph_path, bundle.graph.model_dump(mode="json"))
         write_json_atomic(
@@ -345,6 +423,7 @@ def organize_run(
                 "task_key": task.task_key,
                 "model": model,
                 "endpoint": endpoint,
+                "accepted_attempt": accepted_attempt,
                 "usage": reply.usage,
                 "content": reply.content,
                 "response_sha256": hashlib.sha256(

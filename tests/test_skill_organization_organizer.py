@@ -174,6 +174,34 @@ class OrganizerTests(unittest.TestCase):
         self.assertNotIn('"skill_id"', serialized)
         self.assertNotIn('"source"', serialized)
 
+    def test_organizer_messages_define_the_exact_output_schema(self):
+        messages = build_organizer_messages(
+            task_key="T001", skills=make_task_input().organizer_view()
+        )
+        serialized = json.dumps(messages, ensure_ascii=False)
+        for required in (
+            "skill-hierarchy-v1",
+            "skill-graph-v1",
+            "roots",
+            "edge_type",
+            "source_evidence",
+            "target_evidence",
+        ):
+            self.assertIn(required, serialized)
+
+    def test_validation_feedback_requests_a_complete_replacement(self):
+        messages = build_organizer_messages(
+            task_key="T001",
+            skills=make_task_input().organizer_view(),
+            validation_feedback="hierarchy.roots: Field required",
+        )
+        serialized = json.dumps(messages, ensure_ascii=False)
+        self.assertEqual(messages[-1]["role"], "user")
+        self.assertIn("hierarchy.roots: Field required", messages[-1]["content"])
+        self.assertIn("complete JSON object", messages[-1]["content"])
+        self.assertNotIn("secret-task-id", serialized)
+        self.assertNotIn("gt/", serialized)
+
 
 if __name__ == "__main__":
     unittest.main()

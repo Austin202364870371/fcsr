@@ -74,7 +74,11 @@ class OrganizerReply(BaseModel):
 
 class OrganizerClient(Protocol):
     def organize(
-        self, *, task_key: str, skills: list[dict[str, object]]
+        self,
+        *,
+        task_key: str,
+        skills: list[dict[str, object]],
+        validation_feedback: str | None = None,
     ) -> OrganizerReply: ...
 
 
@@ -158,9 +162,39 @@ format_conversion, explicit_reference. Omit unsupported edges. Every edge must q
 short source substring and one exact, short target substring from the corresponding Skill fields.
 Do not infer or emit task identity, dataset provenance, hidden IDs, answers, or file contents."""
 
+ORGANIZER_EXAMPLE = {
+    "hierarchy": {
+        "schema_version": "skill-hierarchy-v1",
+        "roots": [
+            {
+                "label": "Related procedures",
+                "skills": list(EXPECTED_ALIASES),
+                "children": [],
+            }
+        ],
+    },
+    "graph": {
+        "schema_version": "skill-graph-v1",
+        "nodes": list(EXPECTED_ALIASES),
+        "edges": [],
+    },
+}
+
+
+def organization_schema_text() -> str:
+    return json.dumps(
+        OrganizationBundle.model_json_schema(),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
 
 def build_organizer_messages(
-    *, task_key: str, skills: list[dict[str, object]]
+    *,
+    task_key: str,
+    skills: list[dict[str, object]],
+    validation_feedback: str | None = None,
 ) -> list[dict[str, str]]:
     allowed = {"alias", "rank", "name", "description", "body"}
     for skill in skills:
@@ -172,14 +206,36 @@ def build_organizer_messages(
                 f"extra={sorted(extra)}, missing={sorted(missing)}"
             )
     payload = {"task_key": task_key, "skills": skills}
-    return [
-        {"role": "system", "content": ORGANIZER_SYSTEM_PROMPT},
+    schema_contract = (
+        ORGANIZER_SYSTEM_PROMPT
+        + "\nThe response must validate against this exact JSON Schema:\n"
+        + organization_schema_text()
+        + "\nA structurally valid example is:\n"
+        + json.dumps(
+            ORGANIZER_EXAMPLE, ensure_ascii=False, separators=(",", ":")
+        )
+    )
+    messages = [
+        {"role": "system", "content": schema_contract},
         {
             "role": "user",
             "content": "Organize this anonymous frozen set. Return JSON only.\n"
             + json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         },
     ]
+    if validation_feedback is not None:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "The previous response failed strict validation:\n"
+                    f"{validation_feedback}\n"
+                    "Return a fresh complete JSON object that satisfies the exact schema. "
+                    "Do not return a patch, explanation, or Markdown."
+                ),
+            }
+        )
+    return messages
 
 
 def extract_usage(usage: Any) -> dict[str, int]:
@@ -205,9 +261,17 @@ class DeepSeekOrganizerClient:
         self._model = model
 
     def organize(
-        self, *, task_key: str, skills: list[dict[str, object]]
+        self,
+        *,
+        task_key: str,
+        skills: list[dict[str, object]],
+        validation_feedback: str | None = None,
     ) -> OrganizerReply:
-        messages = build_organizer_messages(task_key=task_key, skills=skills)
+        messages = build_organizer_messages(
+            task_key=task_key,
+            skills=skills,
+            validation_feedback=validation_feedback,
+        )
         response = self._client.chat.completions.create(
             model=self._model,
             temperature=0,

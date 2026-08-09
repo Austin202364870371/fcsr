@@ -20,7 +20,11 @@ from skill_organization.workflow import (
 
 class FakeOrganizer:
     def organize(
-        self, *, task_key: str, skills: list[dict[str, object]]
+        self,
+        *,
+        task_key: str,
+        skills: list[dict[str, object]],
+        validation_feedback: str | None = None,
     ) -> OrganizerReply:
         aliases = [str(skill["alias"]) for skill in skills]
         content = json.dumps(
@@ -42,6 +46,64 @@ class FakeOrganizer:
             }
         )
         return OrganizerReply(content=content, usage={"total_tokens": 10})
+
+
+class RetryOrganizer(FakeOrganizer):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def organize(
+        self,
+        *,
+        task_key: str,
+        skills: list[dict[str, object]],
+        validation_feedback: str | None = None,
+    ) -> OrganizerReply:
+        self.calls.append((task_key, validation_feedback))
+        if task_key == "T001" and sum(key == task_key for key, _ in self.calls) == 1:
+            return OrganizerReply(
+                content=json.dumps(
+                    {
+                        "hierarchy": {
+                            "JAX": ["S01", "S02"],
+                            "Process and Tooling": [
+                                "S03",
+                                "S04",
+                                "S05",
+                                "S06",
+                                "S07",
+                                "S08",
+                            ],
+                        },
+                        "graph": {
+                            "schema_version": "skill-graph-v1",
+                            "nodes": [f"S{index:02d}" for index in range(1, 9)],
+                            "edges": [],
+                        },
+                    }
+                ),
+                usage={"total_tokens": 8},
+            )
+        return super().organize(
+            task_key=task_key,
+            skills=skills,
+            validation_feedback=validation_feedback,
+        )
+
+
+class AlwaysInvalidOrganizer:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def organize(
+        self,
+        *,
+        task_key: str,
+        skills: list[dict[str, object]],
+        validation_feedback: str | None = None,
+    ) -> OrganizerReply:
+        self.calls.append((task_key, validation_feedback))
+        return OrganizerReply(content='{"hierarchy":{},"graph":{}}', usage={})
 
 
 class WorkflowTests(unittest.TestCase):
@@ -178,6 +240,95 @@ class WorkflowTests(unittest.TestCase):
                     expected_task_catalog_sha256=None,
                     expected_report_sha256=None,
                 )
+
+    def test_organize_retries_invalid_schema_and_audits_every_attempt(self):
+        with tempfile.TemporaryDirectory() as raw:
+            paths = self._fixture(Path(raw))
+            audit_run(
+                run_dir=paths["run"],
+                predictions_path=paths["predictions"],
+                skills_path=paths["skills"],
+                task_ids_path=paths["task_ids"],
+                task_catalog_path=paths["catalog"],
+                expected_skills_sha256=None,
+                expected_predictions_sha256=None,
+                expected_task_ids_sha256=None,
+                expected_task_catalog_sha256=None,
+                expected_report_sha256=None,
+            )
+            client = RetryOrganizer()
+            result = organize_run(
+                run_dir=paths["run"],
+                client=client,
+                model="fake-model",
+                endpoint="https://example.invalid",
+            )
+
+            self.assertEqual(result, {"created": 15, "reused": 0})
+            t001_calls = [call for call in client.calls if call[0] == "T001"]
+            self.assertEqual(len(t001_calls), 2)
+            self.assertIsNone(t001_calls[0][1])
+            self.assertIn("hierarchy.roots", t001_calls[1][1])
+            attempts = paths["run"] / "preprocessing/organizer_attempts/T001"
+            first = json.loads(
+                (attempts / "attempt-001.json").read_text(encoding="utf-8")
+            )
+            second = json.loads(
+                (attempts / "attempt-002.json").read_text(encoding="utf-8")
+            )
+            self.assertFalse(first["valid"])
+            self.assertIn("hierarchy.roots", first["validation_error"])
+            self.assertIn('"JAX"', first["content"])
+            self.assertTrue(second["valid"])
+            response = json.loads(
+                (
+                    paths["run"]
+                    / "preprocessing/organizer_responses/T001.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(response["accepted_attempt"], 2)
+
+    def test_organize_stops_after_three_invalid_attempts_without_outputs(self):
+        with tempfile.TemporaryDirectory() as raw:
+            paths = self._fixture(Path(raw))
+            audit_run(
+                run_dir=paths["run"],
+                predictions_path=paths["predictions"],
+                skills_path=paths["skills"],
+                task_ids_path=paths["task_ids"],
+                task_catalog_path=paths["catalog"],
+                expected_skills_sha256=None,
+                expected_predictions_sha256=None,
+                expected_task_ids_sha256=None,
+                expected_task_catalog_sha256=None,
+                expected_report_sha256=None,
+            )
+            client = AlwaysInvalidOrganizer()
+            with self.assertRaisesRegex(
+                ValueError, "failed strict validation after 3 attempts"
+            ):
+                organize_run(
+                    run_dir=paths["run"],
+                    client=client,
+                    model="fake-model",
+                    endpoint="https://example.invalid",
+                )
+
+            self.assertEqual(len(client.calls), 3)
+            attempts = paths["run"] / "preprocessing/organizer_attempts/T001"
+            self.assertEqual(len(list(attempts.glob("attempt-*.json"))), 3)
+            self.assertFalse(
+                (paths["run"] / "preprocessing/hierarchy/T001.json").exists()
+            )
+            self.assertFalse(
+                (paths["run"] / "preprocessing/graph/T001.json").exists()
+            )
+            self.assertFalse(
+                (
+                    paths["run"]
+                    / "preprocessing/organizer_responses/T001.json"
+                ).exists()
+            )
 
     def test_oracle_preflight_gate_requires_all_registered_tasks(self):
         with tempfile.TemporaryDirectory() as raw:
