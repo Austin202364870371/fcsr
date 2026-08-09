@@ -19,7 +19,7 @@ FCSR（Function-aware Coverage Skill Retriever）是一个面向 Agent Skill 检
 | 多 Skill 候选 | 已生成 | 497 个 pair、51 个 triple；仅有 Contract 规则证据。 |
 | 多 Skill LLM 任务编写 | 已实现，待运行 | 本地 Qwen 生成器只消费已验证候选，并执行 JSON、顺序和 DAG 校验。 |
 | Bi-Encoder / Reranker 训练 | 已实现 | Qwen + LoRA，支持 dry-run。 |
-| Hard-15 端到端任务执行 | 未实现 | 当前评估的是规划质量，不报告任务成功率。 |
+| Hard-15 端到端任务执行 | 已实现，待服务器运行 | 固定 15 个任务、Top-8、四种 Skill 条件，并用 BenchFlow verifier 报告任务成功率。 |
 
 ## 研究问题地图
 
@@ -47,7 +47,7 @@ python -B -m unittest discover -s tests -v
 
 ## 依赖
 
-项目只保留一份 `requirements.txt`，覆盖预处理、Qwen 训练、检索评测和 Hard-15 规划实验。
+项目只保留一份 `requirements.txt`，覆盖预处理、Qwen 训练、检索评测和 Hard-15 Skill 组织实验。
 
 ## 数据布局
 
@@ -215,6 +215,67 @@ python -B scripts/evaluate.py score \
 
 新的端到端实验固定 `fcsr-multiskill3x-rrf` 的每任务 Top-8，向 SkillsBench Agent 注入相同的 SkillRouter Hard JSONL 文本载荷，并比较 No Skill、Flat、Hierarchy 和 Evidence Graph。旧的 planning-only 管线已经移除；实验约束、输入指纹、泄漏控制、Skill 打包方式和验收标准保存在本地实验文档中。
 
+服务器端先将 SkillsBench 固定到 v1.1 release commit，再创建一个新的实验目录：
+
+```bash
+SKILLSBENCH_ROOT=/data-nfs/gpu3/u13256401368/skillsbench
+FCSR_ROOT=/data-nfs/gpu3/u13256401368/fcsr
+RUN_DIR="$FCSR_ROOT/reports/agent/skill-organization/hard15-pilot"
+
+cd "$SKILLSBENCH_ROOT"
+git status --short
+git fetch --tags origin
+git switch --detach b63b7b2850226b6aa4fb5929a8c1ac7bc4d9a6af
+uv sync --locked
+uv tool install --python 3.12 --force \
+  --with 'daytona==0.203.0' \
+  --with 'python-socketio==5.16.4' \
+  --with 'python-engineio==4.13.4' \
+  --with 'aiohttp==3.14.3' \
+  'benchflow[sandbox-daytona]==0.6.6'
+bench --version  # 必须输出 benchflow 0.6.6
+
+cd "$FCSR_ROOT"
+python -B scripts/skill_organization.py audit --output "$RUN_DIR"
+set -a
+source /data-nfs/gpu3/u13256401368/.secrets/deepseek-v4-flash.env
+set +a
+python -B scripts/skill_organization.py organize --run-dir "$RUN_DIR"
+```
+
+人工只查看不含 T-key→任务 ID 映射的 `reviewer_packet/`，完成任务盲复核后记录决定并生成 45 个 Skill 包：
+
+```bash
+python -B scripts/skill_organization.py review \
+  --run-dir "$RUN_DIR" --all --decision approve \
+  --reviewer u13256401368 --notes "task-blind review completed"
+
+python -B scripts/skill_organization.py render --run-dir "$RUN_DIR"
+python -B scripts/skill_organization.py validate \
+  --run-dir "$RUN_DIR" --tasks-root "$SKILLSBENCH_ROOT/tasks"
+
+python -B scripts/skill_organization.py oracle-preflight \
+  --run-dir "$RUN_DIR" --tasks-root "$SKILLSBENCH_ROOT/tasks"
+```
+
+先运行两个固定任务的 8 条 smoke trajectory；通过后再生成并运行独立的 60 条 Hard-15 pilot：
+
+```bash
+python -B scripts/skill_organization.py plan-runs \
+  --run-dir "$RUN_DIR" --tasks-root "$SKILLSBENCH_ROOT/tasks" \
+  --stage smoke
+python -B scripts/skill_organization.py run --run-dir "$RUN_DIR" --stage smoke --workers 1
+python -B scripts/skill_organization.py collect --run-dir "$RUN_DIR" --stage smoke
+
+python -B scripts/skill_organization.py plan-runs \
+  --run-dir "$RUN_DIR" --tasks-root "$SKILLSBENCH_ROOT/tasks" \
+  --stage pilot
+python -B scripts/skill_organization.py run --run-dir "$RUN_DIR" --stage pilot --workers 4
+python -B scripts/skill_organization.py collect --run-dir "$RUN_DIR" --stage pilot
+```
+
+`run_matrix_smoke.jsonl` 和 `run_matrix_pilot.jsonl` 会冻结 OpenHands、`deepseek/deepseek-v4-flash`、Daytona、BenchFlow/agent 版本、输入与上下文哈希，并禁止差异覆盖；已有状态不会被隐式重试。只有 8 条 smoke 的挂载、上下文和提示词证据全部通过，才能规划 60 条 pilot。实验产物位于 `RUN_DIR`，并由 `.gitignore` 排除。
+
 ## 常用命令
 
 ```powershell
@@ -224,6 +285,7 @@ python -B scripts/build_compositional_candidates.py --help
 python -B scripts/train_biencoder.py --help
 python -B scripts/train_reranker.py --help
 python -B scripts/evaluate.py --help
+python -B scripts/skill_organization.py --help
 
 # 运行完整离线回归
 $env:PYTHONPATH = "src"

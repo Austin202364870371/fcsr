@@ -2,7 +2,7 @@
   "skillsbench_version": "v1.1",
   "github_commit": "b63b7b2850226b6aa4fb5929a8c1ac7bc4d9a6af",
   "huggingface_repo": "benchflow/skillsbench",
-  "huggingface_revision": "be2a6ce",
+  "huggingface_revision": "be2a6ce2cb1f4ff67ce937307cade0c5a0477a13",
   "tasks": [
     {"task_id": "jax-computing-basics", "source_task_id": "jax-computing-basics", "source_path": "tasks/jax-computing-basics", "stratum": "single_full", "estimated_context_bytes": 11520},
     {"task_id": "dialogue-parser", "source_task_id": "dialogue-parser", "source_path": "tasks/dialogue-parser", "stratum": "single_full", "estimated_context_bytes": 25502},
