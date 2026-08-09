@@ -1,8 +1,10 @@
 import json
 import unittest
+from types import SimpleNamespace
 
 from skill_organization.models import FrozenSkill, SkillRecord, TaskInput
 from skill_organization.organizer import (
+    DeepSeekOrganizerClient,
     EvidenceEdge,
     EvidenceGraph,
     Hierarchy,
@@ -201,6 +203,39 @@ class OrganizerTests(unittest.TestCase):
         self.assertIn("complete JSON object", messages[-1]["content"])
         self.assertNotIn("secret-task-id", serialized)
         self.assertNotIn("gt/", serialized)
+
+    def test_deepseek_client_returns_empty_content_with_response_diagnostics(self):
+        response = SimpleNamespace(
+            id="response-123",
+            model="deepseek-v4-flash-actual",
+            choices=[
+                SimpleNamespace(
+                    finish_reason="length",
+                    message=SimpleNamespace(content=None),
+                )
+            ],
+            usage=SimpleNamespace(
+                prompt_tokens=100,
+                completion_tokens=200,
+                total_tokens=300,
+            ),
+        )
+        completions = SimpleNamespace(create=lambda **_: response)
+        client = DeepSeekOrganizerClient.__new__(DeepSeekOrganizerClient)
+        client._client = SimpleNamespace(
+            chat=SimpleNamespace(completions=completions)
+        )
+        client._model = "deepseek-v4-flash"
+
+        reply = client.organize(
+            task_key="T001", skills=make_task_input().organizer_view()
+        )
+
+        self.assertEqual(reply.content, "")
+        self.assertEqual(reply.finish_reason, "length")
+        self.assertEqual(reply.provider_model, "deepseek-v4-flash-actual")
+        self.assertEqual(reply.response_id, "response-123")
+        self.assertEqual(reply.usage["total_tokens"], 300)
 
 
 if __name__ == "__main__":

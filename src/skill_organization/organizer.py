@@ -67,6 +67,9 @@ class OrganizerReply(BaseModel):
 
     content: str
     usage: dict[str, int]
+    finish_reason: str | None = None
+    provider_model: str | None = None
+    response_id: str | None = None
 
     def parse_bundle(self) -> OrganizationBundle:
         return OrganizationBundle.model_validate_json(self.content)
@@ -278,7 +281,11 @@ class DeepSeekOrganizerClient:
             response_format={"type": "json_object"},
             messages=messages,
         )
-        content = response.choices[0].message.content
-        if not content:
-            raise ValueError("organizer returned empty content")
-        return OrganizerReply(content=content, usage=extract_usage(response.usage))
+        choice = response.choices[0]
+        return OrganizerReply(
+            content=choice.message.content or "",
+            usage=extract_usage(response.usage),
+            finish_reason=getattr(choice, "finish_reason", None),
+            provider_model=getattr(response, "model", None),
+            response_id=getattr(response, "id", None),
+        )

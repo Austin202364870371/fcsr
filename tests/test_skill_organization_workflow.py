@@ -106,6 +106,33 @@ class AlwaysInvalidOrganizer:
         return OrganizerReply(content='{"hierarchy":{},"graph":{}}', usage={})
 
 
+class EmptyThenValidOrganizer(FakeOrganizer):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def organize(
+        self,
+        *,
+        task_key: str,
+        skills: list[dict[str, object]],
+        validation_feedback: str | None = None,
+    ) -> OrganizerReply:
+        self.calls.append((task_key, validation_feedback))
+        if task_key == "T001" and sum(key == task_key for key, _ in self.calls) == 1:
+            return OrganizerReply(
+                content="",
+                usage={"total_tokens": 300},
+                finish_reason="length",
+                provider_model="deepseek-v4-flash-actual",
+                response_id="response-123",
+            )
+        return super().organize(
+            task_key=task_key,
+            skills=skills,
+            validation_feedback=validation_feedback,
+        )
+
+
 class WorkflowTests(unittest.TestCase):
     def _fixture(self, root: Path) -> dict[str, Path]:
         task_ids = list(HARD15_TASK_IDS)
@@ -329,6 +356,49 @@ class WorkflowTests(unittest.TestCase):
                     / "preprocessing/organizer_responses/T001.json"
                 ).exists()
             )
+
+    def test_organize_retries_empty_content_and_persists_diagnostics(self):
+        with tempfile.TemporaryDirectory() as raw:
+            paths = self._fixture(Path(raw))
+            audit_run(
+                run_dir=paths["run"],
+                predictions_path=paths["predictions"],
+                skills_path=paths["skills"],
+                task_ids_path=paths["task_ids"],
+                task_catalog_path=paths["catalog"],
+                expected_skills_sha256=None,
+                expected_predictions_sha256=None,
+                expected_task_ids_sha256=None,
+                expected_task_catalog_sha256=None,
+                expected_report_sha256=None,
+            )
+            client = EmptyThenValidOrganizer()
+
+            result = organize_run(
+                run_dir=paths["run"],
+                client=client,
+                model="fake-model",
+                endpoint="https://example.invalid",
+            )
+
+            self.assertEqual(result, {"created": 15, "reused": 0})
+            t001_calls = [call for call in client.calls if call[0] == "T001"]
+            self.assertEqual(len(t001_calls), 2)
+            self.assertIn("Invalid JSON", t001_calls[1][1])
+            attempt = json.loads(
+                (
+                    paths["run"]
+                    / "preprocessing/organizer_attempts/T001/attempt-001.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(attempt["content"], "")
+            self.assertFalse(attempt["valid"])
+            self.assertEqual(attempt["finish_reason"], "length")
+            self.assertEqual(
+                attempt["provider_model"], "deepseek-v4-flash-actual"
+            )
+            self.assertEqual(attempt["response_id"], "response-123")
+            self.assertEqual(attempt["usage"]["total_tokens"], 300)
 
     def test_oracle_preflight_gate_requires_all_registered_tasks(self):
         with tempfile.TemporaryDirectory() as raw:

@@ -397,6 +397,9 @@ def organize_run(
                     "prompt_sha256": hash_json(attempt_messages),
                     "validation_feedback": validation_feedback,
                     "usage": reply.usage,
+                    "finish_reason": reply.finish_reason,
+                    "provider_model": reply.provider_model,
+                    "response_id": reply.response_id,
                     "content": reply.content,
                     "response_sha256": hashlib.sha256(
                         reply.content.encode("utf-8")
@@ -425,6 +428,9 @@ def organize_run(
                 "endpoint": endpoint,
                 "accepted_attempt": accepted_attempt,
                 "usage": reply.usage,
+                "finish_reason": reply.finish_reason,
+                "provider_model": reply.provider_model,
+                "response_id": reply.response_id,
                 "content": reply.content,
                 "response_sha256": hashlib.sha256(
                     reply.content.encode("utf-8")
