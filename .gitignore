@@ -21,3 +21,4 @@ logs/
 env-qgen/
 docs/*
 !docs/rq*.md
+!docs/skill-organization*.md

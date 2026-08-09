@@ -26,7 +26,7 @@ FCSR（Function-aware Coverage Skill Retriever）是一个面向 Agent Skill 检
 项目按五个研究问题组织，文档会明确区分已实现的资产、待验证的实验和可报告的结论：
 
 1. [RQ1：大规模 Skill 检索](docs/rq1-skill-retrieval.md)
-2. [RQ2：召回 Skill 的组织](docs/rq2-skill-organization.md)
+2. [检索后 Skill 的组织实验](docs/skill-organization.md)
 3. [RQ3：Agent 规划](docs/rq3-agent-planning.md)
 4. [RQ4：Agent Reflection](docs/rq4-agent-reflection.md)
 5. [RQ5：Agent 评估](docs/rq5-agent-evaluation.md)
@@ -211,17 +211,9 @@ python -B scripts/evaluate.py score \
 
 评测遵循 SkillRouter 兼容协议：过滤 `generic_only`，将 GT/relevance 与当前 Skill pool 取交集，报告整体、single-skill、multi-skill、FullCoverage 和分级 relevance nDCG。
 
-## Hard-15 Agent 规划实验
+## Hard-15 Skill 组织实验
 
-Hard-15 消费 FCSR 的 Hard pool Top-20，比较 Flat、Hierarchy、Evidence Graph 三种组织方式，并用 DeepSeek 输出 Pydantic 校验后的规划 JSON。
-
-```powershell
-$env:PYTHONPATH = "src"
-python -B scripts/run_hard15_experiment.py --sync --dry-run
-python -B scripts/run_hard15_experiment.py
-```
-
-结果写入 `reports/agent/hard15/`。该实验当前只报告计划有效性、GT 覆盖、token 和结构指标；完整 SkillsBench 环境和 verifier 未接入前，不能将结果解释为端到端任务成功率。详见 [HARD15_RUN.md](HARD15_RUN.md)。
+新的端到端实验固定 `fcsr-multiskill3x-rrf` 的每任务 Top-8，向 SkillsBench Agent 注入相同的 SkillRouter Hard JSONL 文本载荷，并比较 No Skill、Flat、Hierarchy 和 Evidence Graph。旧的 planning-only 管线已经移除；实验约束、输入指纹、泄漏控制、Skill 打包方式和验收标准见 [Hard-15 Skill 组织实验](docs/skill-organization.md)。
 
 ## 常用命令
 
