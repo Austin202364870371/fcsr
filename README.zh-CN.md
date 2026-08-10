@@ -151,15 +151,15 @@ python -B scripts/evaluate.py rerank \
   --skills data/raw/skills_hard.jsonl.gz \
   --model checkpoints/fcsr-rank-0.6b-multiskill3x \
   --top-k 10 \
-  --output-predictions reports/reranker/hard/fcsr-multiskill3x-rrf/predictions.json \
-  --output-records reports/reranker/hard/fcsr-multiskill3x-rrf/records.jsonl
+  --output-predictions reports/reranker/hard/rrf-base-emb-multiskill3x/predictions.json \
+  --output-records reports/reranker/hard/rrf-base-emb-multiskill3x/records.jsonl
 
 python -B scripts/evaluate.py score \
   --tasks data/raw/evaluation_queries.jsonl.gz \
   --skills data/raw/skills_hard.jsonl.gz \
-  --predictions reports/reranker/hard/fcsr-multiskill3x-rrf/predictions.json \
+  --predictions reports/reranker/hard/rrf-base-emb-multiskill3x/predictions.json \
   --stage reranker --tier hard \
-  --output-dir reports/reranker/hard/fcsr-multiskill3x-rrf
+  --output-dir reports/reranker/hard/rrf-base-emb-multiskill3x
 
 # 输出最终系统表和两阶段消融表。
 python -B scripts/render_evaluation_tables.py

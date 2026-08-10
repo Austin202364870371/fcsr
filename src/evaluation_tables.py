@@ -26,10 +26,10 @@ FINAL_SYSTEMS = (
     ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
     ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
     (
-        "Ours: RRF + FCSR MultiSkill-3x",
+        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
         "Rerank",
         "reranker",
-        "fcsr-multiskill3x-rrf",
+        "rrf-base-emb-multiskill3x",
     ),
 )
 
@@ -38,7 +38,7 @@ OPTIONAL_FINAL_SYSTEMS = (
         "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
         "Rerank",
         "reranker",
-        "rrf-fcsr-multiskill3x",
+        "rrf-fcsr-emb-multiskill3x",
     ),
 )
 
@@ -51,12 +51,12 @@ TWO_STAGE_SYSTEMS = (
     ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
     ("Ours: FCSR + MultiSkill-3x", "Retrieval", "retrieval", "fcsr-multiskill3x"),
     ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
-    ("Ours: RRF + FCSR MultiSkill-3x", "Retrieval", "retrieval", "hybrid"),
+    ("Ours: RRF (Base Emb.) + FCSR MultiSkill-3x", "Retrieval", "retrieval", "hybrid"),
     (
-        "Ours: RRF + FCSR MultiSkill-3x",
+        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
         "Rerank",
         "reranker",
-        "fcsr-multiskill3x-rrf",
+        "rrf-base-emb-multiskill3x",
     ),
 )
 
@@ -65,13 +65,13 @@ OPTIONAL_TWO_STAGE_SYSTEMS = (
         "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
         "Retrieval",
         "retrieval",
-        "rrf-fcsr-multiskill3x",
+        "rrf-fcsr-emb-multiskill3x",
     ),
     (
         "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
         "Rerank",
         "reranker",
-        "rrf-fcsr-multiskill3x",
+        "rrf-fcsr-emb-multiskill3x",
     ),
 )
 
