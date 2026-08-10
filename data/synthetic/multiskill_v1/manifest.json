@@ -1,10 +1,10 @@
 {
-  "schema_version": "synthetic_compositional_v1",
+  "schema_version": "synthetic_multiskill_v1",
   "task_type": "multi_skill",
   "status": "queries_generated_with_failures",
   "storage_format": "jsonl.gz",
   "source_universe": {
-    "eligible_skills": "valid_contracts AND single_v1_queries AND not_benchmark_skill",
+    "eligible_skills": "valid_contracts AND single_skill_v1_queries AND not_benchmark_skill",
     "single_skill_query_count": 7342
   },
   "generation_policy": {
@@ -23,7 +23,7 @@
       "records": 22635
     },
     "queries": {
-      "path": "compositional_queries.jsonl.gz",
+      "path": "queries.jsonl.gz",
       "records": 541
     },
     "failures": {
@@ -37,7 +37,7 @@
   },
   "candidate_construction": {
     "contracts": "data/contracts/contracts.jsonl.gz",
-    "single_skill_queries": "data/synthetic/single_v1/queries.jsonl.gz",
+    "single_skill_queries": "data/synthetic/single_skill_v1/queries.jsonl.gz",
     "benchmark_tasks": "data/raw/evaluation_queries.jsonl.gz",
     "max_pairs": 7342,
     "max_triples": 1000,
@@ -48,8 +48,8 @@
     "triples": 51,
     "candidates": 548,
     "rejections": 22635,
-    "output": "data/synthetic/compositional_v1/candidates.jsonl.gz",
-    "rejections_output": "data/synthetic/compositional_v1/candidate_rejections.jsonl.gz"
+    "output": "data/synthetic/multiskill_v1/candidates.jsonl.gz",
+    "rejections_output": "data/synthetic/multiskill_v1/candidate_rejections.jsonl.gz"
   },
   "query_generation": {
     "provider": "local_transformers",
@@ -66,8 +66,8 @@
     "queries": 541,
     "failures": 7,
     "review_queue": 448,
-    "output": "data/synthetic/compositional_v1/compositional_queries.jsonl.gz",
-    "failures_output": "data/synthetic/compositional_v1/failures.jsonl.gz",
-    "review_queue_output": "data/synthetic/compositional_v1/review_queue.jsonl.gz"
+    "output": "data/synthetic/multiskill_v1/queries.jsonl.gz",
+    "failures_output": "data/synthetic/multiskill_v1/failures.jsonl.gz",
+    "review_queue_output": "data/synthetic/multiskill_v1/review_queue.jsonl.gz"
   }
 }

@@ -32,4 +32,4 @@ if [[ "$OVERWRITE" == "1" ]]; then
   arguments+=(--overwrite)
 fi
 
-python -B scripts/generate_compositional_queries.py "${arguments[@]}"
+python -B scripts/generate_multiskill_queries.py "${arguments[@]}"

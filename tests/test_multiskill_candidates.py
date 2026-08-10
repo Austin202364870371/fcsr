@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from compositional import CandidateSettings, build_compositional_candidates
+from multiskill_candidates import CandidateSettings, build_compositional_candidates
 from data_io import load_jsonl, write_jsonl_atomic
-from scripts.build_compositional_candidates import run
+from scripts.build_multiskill_candidates import run
 
 
 def contract(skill_id, source_hash, outputs, inputs, actions):

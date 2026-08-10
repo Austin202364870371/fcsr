@@ -14,7 +14,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from compositional import CandidateSettings, build_compositional_candidates
+from multiskill_candidates import CandidateSettings, build_compositional_candidates
 from data_io import stream_jsonl, write_jsonl_atomic
 from preprocessing import collect_benchmark_skill_ids
 
@@ -33,17 +33,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/synthetic/compositional_v1/candidates.jsonl.gz"),
+        default=Path("data/synthetic/multiskill_v1/candidates.jsonl.gz"),
     )
     parser.add_argument(
         "--rejections",
         type=Path,
-        default=Path("data/synthetic/compositional_v1/candidate_rejections.jsonl.gz"),
+        default=Path("data/synthetic/multiskill_v1/candidate_rejections.jsonl.gz"),
     )
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path("data/synthetic/compositional_v1/manifest.json"),
+        default=Path("data/synthetic/multiskill_v1/manifest.json"),
     )
     parser.add_argument("--max-pairs", type=int, default=7342)
     parser.add_argument("--max-triples", type=int, default=1000)

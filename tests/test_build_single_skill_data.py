@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.preprocess import build_parser, load_project_env
+from scripts.build_single_skill_data import build_parser, load_project_env
 
 
-class PreprocessCliTests(unittest.TestCase):
+class BuildSingleSkillDataTests(unittest.TestCase):
     def test_uses_deepseek_v4_flash_by_default(self) -> None:
         parser = build_parser()
 

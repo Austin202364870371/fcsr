@@ -1,6 +1,6 @@
 import unittest
 
-from compositional_generation import (
+from multiskill_generation import (
     CompositionalGenerationConfig,
     generate_compositional_queries,
 )

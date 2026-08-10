@@ -149,11 +149,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     prepare = commands.add_parser("prepare", help="build ordered Top-20 groups")
     prepare.add_argument(
-        "--retrieval", default="data/synthetic/single_v1/train_biencoder.jsonl.gz"
+        "--retrieval", default="data/synthetic/single_skill_v1/train_biencoder.jsonl.gz"
     )
     prepare.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     prepare.add_argument(
-        "--output", default="data/synthetic/single_v1/train_reranker.jsonl.gz"
+        "--output", default="data/synthetic/single_skill_v1/train_reranker.jsonl.gz"
     )
     prepare.add_argument("--top-k", type=int, default=20)
     prepare.add_argument("--overwrite", action="store_true")
@@ -161,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
     train = commands.add_parser("train", help="train Qwen3-Reranker listwise")
     train.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
     train.add_argument(
-        "--groups", default="data/synthetic/single_v1/train_reranker.jsonl.gz"
+        "--groups", default="data/synthetic/single_skill_v1/train_reranker.jsonl.gz"
     )
     train.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     train.add_argument("--model")

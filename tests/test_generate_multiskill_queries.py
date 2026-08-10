@@ -11,7 +11,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from data_io import stream_jsonl, write_jsonl_atomic
-from generate_compositional_queries import build_parser, run
+from generate_multiskill_queries import build_parser, run
 
 
 class FakeClient:

@@ -70,16 +70,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_llm_arguments(queries)
     queries.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
     queries.add_argument("--contracts", default="data/contracts/contracts.jsonl.gz")
-    queries.add_argument("--output", default="data/synthetic/single_v1/queries.jsonl.gz")
+    queries.add_argument("--output", default="data/synthetic/single_skill_v1/queries.jsonl.gz")
     queries.add_argument("--failures", default="data/contracts/failures.jsonl.gz")
     queries.add_argument("--no-progress", action="store_true")
 
     local = subparsers.add_parser(
         "local-negatives", help="mine BM25, same-category, and random negatives"
     )
-    local.add_argument("--queries", default="data/synthetic/single_v1/queries.jsonl.gz")
+    local.add_argument("--queries", default="data/synthetic/single_skill_v1/queries.jsonl.gz")
     local.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
-    local.add_argument("--output", default="data/synthetic/single_v1/local_negatives.jsonl.gz")
+    local.add_argument("--output", default="data/synthetic/single_skill_v1/local_negatives.jsonl.gz")
     local.add_argument("--seed", type=int, default=42)
     local.add_argument("--overlap-threshold", type=float, default=0.85)
     local.add_argument("--overwrite", action="store_true")
@@ -88,9 +88,9 @@ def build_parser() -> argparse.ArgumentParser:
     semantic = subparsers.add_parser(
         "semantic-negatives", help="mine semantic negatives with a Qwen encoder"
     )
-    semantic.add_argument("--local", default="data/synthetic/single_v1/local_negatives.jsonl.gz")
+    semantic.add_argument("--local", default="data/synthetic/single_skill_v1/local_negatives.jsonl.gz")
     semantic.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
-    semantic.add_argument("--output", default="data/synthetic/single_v1/train_biencoder.jsonl.gz")
+    semantic.add_argument("--output", default="data/synthetic/single_skill_v1/train_biencoder.jsonl.gz")
     semantic.add_argument(
         "--review", default="data/processed/contract_fn_review.jsonl.gz"
     )

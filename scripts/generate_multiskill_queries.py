@@ -15,7 +15,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from compositional_generation import (
+from multiskill_generation import (
     CompletionClient,
     CompositionalGenerationConfig,
     CompositionalGenerationProgress,
@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--candidates",
         type=Path,
-        default=Path("data/synthetic/compositional_v1/candidates.jsonl.gz"),
+        default=Path("data/synthetic/multiskill_v1/candidates.jsonl.gz"),
     )
     parser.add_argument(
         "--contracts", type=Path, default=Path("data/contracts/contracts.jsonl.gz")
@@ -40,22 +40,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/synthetic/compositional_v1/compositional_queries.jsonl.gz"),
+        default=Path("data/synthetic/multiskill_v1/queries.jsonl.gz"),
     )
     parser.add_argument(
         "--failures",
         type=Path,
-        default=Path("data/synthetic/compositional_v1/failures.jsonl.gz"),
+        default=Path("data/synthetic/multiskill_v1/failures.jsonl.gz"),
     )
     parser.add_argument(
         "--review-queue",
         type=Path,
-        default=Path("data/synthetic/compositional_v1/review_queue.jsonl.gz"),
+        default=Path("data/synthetic/multiskill_v1/review_queue.jsonl.gz"),
     )
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path("data/synthetic/compositional_v1/manifest.json"),
+        default=Path("data/synthetic/multiskill_v1/manifest.json"),
     )
     parser.add_argument("--model", default="models/Qwen3-8B")
     parser.add_argument("--device", default="cuda")

@@ -8,12 +8,12 @@ data:
   contracts: data/contracts/contracts.jsonl.gz
   contract_failures: data/contracts/failures.jsonl.gz
   contract_manifest: data/contracts/manifest.json
-  synthetic_queries: data/synthetic/single_v1/queries.jsonl.gz
-  biencoder_train: data/synthetic/single_v1/train_biencoder.jsonl.gz
-  reranker_train: data/synthetic/single_v1/train_reranker.jsonl.gz
-  compositional_manifest: data/synthetic/compositional_v1/manifest.json
-  compositional_candidates: data/synthetic/compositional_v1/candidates.jsonl.gz
-  compositional_rejections: data/synthetic/compositional_v1/candidate_rejections.jsonl.gz
+  single_skill_queries: data/synthetic/single_skill_v1/queries.jsonl.gz
+  single_skill_biencoder_train: data/synthetic/single_skill_v1/train_biencoder.jsonl.gz
+  single_skill_reranker_train: data/synthetic/single_skill_v1/train_reranker.jsonl.gz
+  multiskill_manifest: data/synthetic/multiskill_v1/manifest.json
+  multiskill_candidates: data/synthetic/multiskill_v1/candidates.jsonl.gz
+  multiskill_rejections: data/synthetic/multiskill_v1/candidate_rejections.jsonl.gz
 
 contracts:
   schema_version: contract_v2
