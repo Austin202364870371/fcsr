@@ -21,9 +21,9 @@ FINAL_SYSTEMS = (
     ("Flat-BM25", "Retrieval", "retrieval", "bm25"),
     ("Flat-Dense", "Retrieval", "retrieval", "dense"),
     ("Flat-Hybrid (RRF)", "Retrieval", "retrieval", "hybrid"),
-    ("Flat-Dense + Base Reranker", "Rerank", "reranker", "base-rerank"),
+    ("Flat-Dense + Base Reranker", "Rerank", "reranker", "dense-base-reranker"),
     ("SkillRouter", "Rerank", "reranker", "skillrouter"),
-    ("Ours: FCSR", "Rerank", "reranker", "fcsr-base"),
+    ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
     ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
     (
         "Ours: RRF + FCSR MultiSkill-3x",
@@ -35,11 +35,11 @@ FINAL_SYSTEMS = (
 
 TWO_STAGE_SYSTEMS = (
     ("Flat-Dense + Base Reranker", "Retrieval", "retrieval", "dense"),
-    ("Flat-Dense + Base Reranker", "Rerank", "reranker", "base-rerank"),
+    ("Flat-Dense + Base Reranker", "Rerank", "reranker", "dense-base-reranker"),
     ("SkillRouter", "Retrieval", "retrieval", "skillrouter"),
     ("SkillRouter", "Rerank", "reranker", "skillrouter"),
-    ("Ours: FCSR", "Retrieval", "retrieval", "fcsr-base"),
-    ("Ours: FCSR", "Rerank", "reranker", "fcsr-base"),
+    ("Ours: FCSR", "Retrieval", "retrieval", "fcsr-single"),
+    ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
     ("Ours: FCSR + MultiSkill-3x", "Retrieval", "retrieval", "fcsr-multiskill3x"),
     ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
     ("Ours: RRF + FCSR MultiSkill-3x", "Retrieval", "retrieval", "hybrid"),

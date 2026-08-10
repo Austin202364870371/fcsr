@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     semantic.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     semantic.add_argument("--output", default="data/synthetic/single_skill_v1/train_biencoder.jsonl.gz")
     semantic.add_argument(
-        "--review", default="data/processed/contract_fn_review.jsonl.gz"
+        "--review", default="data/processed/semantic_negative_review.jsonl.gz"
     )
     semantic.add_argument("--model", default="Qwen/Qwen3-Embedding-0.6B")
     semantic.add_argument("--top-k", type=int, default=50)
