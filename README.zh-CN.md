@@ -192,9 +192,15 @@ rsync -a --exclude manifest.json data/synthetic/compositional_v1/ \
 mv data/synthetic/multiskill_v1/compositional_queries.jsonl.gz \
   data/synthetic/multiskill_v1/queries.jsonl.gz
 mv data/training/rq1-mixed-3x data/training/multiskill3x
+mv data/processed/contract_fn_review.jsonl.gz \
+  data/processed/semantic_negative_review.jsonl.gz
+mv data/processed/synthetic_top20.json \
+  data/processed/single_skill_top20_predictions.json
+mv data/processed/synthetic_top20.jsonl.gz \
+  data/processed/single_skill_top20_records.jsonl.gz
 ```
 
-确认文件已复制后，再删除两个旧 synthetic 目录。重新构建数据后会更新对应 manifest；不要手工修改 JSONL 记录内容。
+已有 reports 中，将同一路径的 `fcsr-base` 改为 `fcsr-single`、`base-rerank` 改为 `dense-base-reranker`。确认文件已复制后，再删除两个旧 synthetic 目录。重新构建数据后会更新对应 manifest；不要手工修改 JSONL 记录内容。
 
 ## 文档
 

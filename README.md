@@ -192,9 +192,15 @@ rsync -a --exclude manifest.json data/synthetic/compositional_v1/ \
 mv data/synthetic/multiskill_v1/compositional_queries.jsonl.gz \
   data/synthetic/multiskill_v1/queries.jsonl.gz
 mv data/training/rq1-mixed-3x data/training/multiskill3x
+mv data/processed/contract_fn_review.jsonl.gz \
+  data/processed/semantic_negative_review.jsonl.gz
+mv data/processed/synthetic_top20.json \
+  data/processed/single_skill_top20_predictions.json
+mv data/processed/synthetic_top20.jsonl.gz \
+  data/processed/single_skill_top20_records.jsonl.gz
 ```
 
-After checking the copied files, remove the two old synthetic directories. Regenerate the corresponding manifest after a new dataset build; do not edit record content by hand.
+For existing reports, rename `fcsr-base` to `fcsr-single` and `base-rerank` to `dense-base-reranker` at the same path. After checking the copied files, remove the two old synthetic directories. Regenerate the corresponding manifest after a new dataset build; do not edit record content by hand.
 
 ## Documentation
 
