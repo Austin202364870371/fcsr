@@ -33,6 +33,8 @@ class EvaluationTableTests(unittest.TestCase):
             ("retrieval", "fcsr-multiskill3x"): 0.09,
             ("reranker", "fcsr-multiskill3x"): 0.10,
             ("reranker", "fcsr-multiskill3x-rrf"): 0.11,
+            ("retrieval", "rrf-fcsr-multiskill3x"): 0.12,
+            ("reranker", "rrf-fcsr-multiskill3x"): 0.13,
         }
 
         def load_summary(_: Path, stage: str, variant: str) -> dict[str, object]:
@@ -48,6 +50,10 @@ class EvaluationTableTests(unittest.TestCase):
 
         with (
             patch("evaluation_tables._load_summary", side_effect=load_summary),
+            patch(
+                "evaluation_tables._has_hard_summary",
+                side_effect=lambda _, stage, variant: variant == "rrf-fcsr-multiskill3x",
+            ),
             patch.object(Path, "mkdir"),
             patch.object(Path, "write_text") as write_text,
         ):
@@ -59,14 +65,23 @@ class EvaluationTableTests(unittest.TestCase):
 
         self.assertIn("# Hard Pool Final System Comparison", final_table)
         self.assertIn("Ours: RRF + FCSR MultiSkill-3x", final_table)
+        self.assertIn("Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x", final_table)
         self.assertNotIn("| SkillRouter | Retrieval |", final_table)
-        self.assertIn("**0.6100**", final_table)
+        self.assertIn("**0.6300**", final_table)
 
         self.assertIn("# Hard Pool Two-Stage Ablation", ablation_table)
         self.assertIn("| SkillRouter | Retrieval |", ablation_table)
         self.assertIn("| SkillRouter | Rerank |", ablation_table)
         self.assertIn("| Ours: RRF + FCSR MultiSkill-3x | Retrieval |", ablation_table)
         self.assertIn("| Ours: RRF + FCSR MultiSkill-3x | Rerank |", ablation_table)
+        self.assertIn(
+            "| Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x | Retrieval |",
+            ablation_table,
+        )
+        self.assertIn(
+            "| Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x | Rerank |",
+            ablation_table,
+        )
 
 
 if __name__ == "__main__":

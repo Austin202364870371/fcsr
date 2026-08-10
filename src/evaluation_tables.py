@@ -33,6 +33,15 @@ FINAL_SYSTEMS = (
     ),
 )
 
+OPTIONAL_FINAL_SYSTEMS = (
+    (
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Rerank",
+        "reranker",
+        "rrf-fcsr-multiskill3x",
+    ),
+)
+
 TWO_STAGE_SYSTEMS = (
     ("Flat-Dense + Base Reranker", "Retrieval", "retrieval", "dense"),
     ("Flat-Dense + Base Reranker", "Rerank", "reranker", "dense-base-reranker"),
@@ -51,6 +60,21 @@ TWO_STAGE_SYSTEMS = (
     ),
 )
 
+OPTIONAL_TWO_STAGE_SYSTEMS = (
+    (
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Retrieval",
+        "retrieval",
+        "rrf-fcsr-multiskill3x",
+    ),
+    (
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Rerank",
+        "reranker",
+        "rrf-fcsr-multiskill3x",
+    ),
+)
+
 
 def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dict[str, Path]:
     """Write final-system and two-stage Hard-pool Markdown tables."""
@@ -63,7 +87,10 @@ def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dic
     final_path.write_text(
         _render_table(
             "Hard Pool Final System Comparison",
-            _load_rows(reports_dir, FINAL_SYSTEMS),
+            _load_rows(
+                reports_dir,
+                _available_systems(reports_dir, FINAL_SYSTEMS, OPTIONAL_FINAL_SYSTEMS),
+            ),
             stage_header="Final Stage",
             bold_best=True,
         ),
@@ -72,13 +99,32 @@ def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dic
     ablation_path.write_text(
         _render_table(
             "Hard Pool Two-Stage Ablation",
-            _load_rows(reports_dir, TWO_STAGE_SYSTEMS),
+            _load_rows(
+                reports_dir,
+                _available_systems(reports_dir, TWO_STAGE_SYSTEMS, OPTIONAL_TWO_STAGE_SYSTEMS),
+            ),
             stage_header="Stage",
             bold_best=False,
         ),
         encoding="utf-8",
     )
     return {"final": final_path, "ablation": ablation_path}
+
+
+def _available_systems(
+    reports_dir: Path,
+    required: tuple[tuple[str, str, str, str], ...],
+    optional: tuple[tuple[str, str, str, str], ...],
+) -> tuple[tuple[str, str, str, str], ...]:
+    """Keep optional systems out until every required stage has a Hard summary."""
+    grouped: dict[str, list[tuple[str, str, str, str]]] = {}
+    for specification in optional:
+        grouped.setdefault(specification[0], []).append(specification)
+    available = list(required)
+    for specifications in grouped.values():
+        if all(_has_hard_summary(reports_dir, stage, variant) for _, _, stage, variant in specifications):
+            available.extend(specifications)
+    return tuple(available)
 
 
 def _load_rows(reports_dir: Path, specifications: tuple[tuple[str, str, str, str], ...]) -> list[dict[str, Any]]:
@@ -94,7 +140,7 @@ def _load_rows(reports_dir: Path, specifications: tuple[tuple[str, str, str, str
 
 def _load_summary(reports_dir: Path, stage: str, variant: str) -> dict[str, Any]:
     directory = reports_dir / stage / "hard" / variant
-    paths = (directory / "summary.json", directory / f"{stage}_hard_summary.json")
+    paths = _summary_paths(directory, stage)
     for path in paths:
         if not path.is_file():
             continue
@@ -104,6 +150,24 @@ def _load_summary(reports_dir: Path, stage: str, variant: str) -> dict[str, Any]
     raise FileNotFoundError(
         f"missing Hard {stage} summary for {variant}: " + ", ".join(str(path) for path in paths)
     )
+
+
+def _has_hard_summary(reports_dir: Path, stage: str, variant: str) -> bool:
+    directory = reports_dir / stage / "hard" / variant
+    for path in _summary_paths(directory, stage):
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return False
+        if payload.get("stage") == stage and payload.get("tier") == "hard":
+            return True
+    return False
+
+
+def _summary_paths(directory: Path, stage: str) -> tuple[Path, Path]:
+    return (directory / "summary.json", directory / f"{stage}_hard_summary.json")
 
 
 def _extract_metrics(payload: dict[str, Any], stage: str, variant: str) -> dict[str, float]:
