@@ -14,6 +14,9 @@ data:
   multiskill_manifest: data/synthetic/multiskill_v1/manifest.json
   multiskill_candidates: data/synthetic/multiskill_v1/candidates.jsonl.gz
   multiskill_rejections: data/synthetic/multiskill_v1/candidate_rejections.jsonl.gz
+  multiskill_queries: data/synthetic/multiskill_v1/queries.jsonl.gz
+  weighted_biencoder_train: data/training/multiskill_weighted/biencoder.jsonl.gz
+  weighted_reranker_train: data/training/multiskill_weighted/reranker.jsonl.gz
 
 contracts:
   schema_version: contract_v2
@@ -28,6 +31,12 @@ contracts:
     temperature: 0.0
     max_attempts: 3
     backoff_seconds: 2.0
+
+training_mixture:
+  strategy: single_pass_type_weighted_loss
+  replicate_multiskill_queries: false
+  biencoder_multi_loss_weight: 1.5
+  reranker_multi_loss_weight: 3.0
 
 retrieval:
   top_n: 100

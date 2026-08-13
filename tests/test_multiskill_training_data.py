@@ -91,16 +91,20 @@ class MultiskillTrainingDataTests(unittest.TestCase):
             self.compositional,
             self.skills,
             self.semantic,
-            multiplier=3,
+            biencoder_multi_loss_weight=1.5,
+            reranker_multi_loss_weight=3.0,
             seed=42,
         )
 
-        self.assertEqual(len(result.biencoder_records), 7)
-        self.assertEqual(len(result.reranker_groups), 4)
+        self.assertEqual(len(result.biencoder_records), 3)
+        self.assertEqual(len(result.reranker_groups), 2)
         expanded = result.biencoder_records[1:]
         self.assertEqual({record["positive_skill_id"] for record in expanded}, {"dev/a", "dev/b"})
+        self.assertEqual(len({record["query_id"] for record in expanded}), 2)
         for record in expanded:
             self.assertEqual(record["positive_skill_ids"], ["dev/a", "dev/b"])
+            self.assertEqual(record["training_type"], "multi_skill")
+            self.assertEqual(record["loss_weight"], 1.5)
             negative_ids = {item["skill_id"] for item in record["negative_candidates"]}
             self.assertFalse(negative_ids & {"dev/a", "dev/b"})
 
@@ -113,15 +117,19 @@ class MultiskillTrainingDataTests(unittest.TestCase):
             self.assertEqual(labels["dev/a"], 1)
             self.assertEqual(labels["dev/b"], 1)
             self.assertEqual(sum(group["positive_mask"]), 2)
+            self.assertEqual(group["training_type"], "multi_skill")
+            self.assertEqual(group["loss_weight"], 3.0)
 
     def test_is_deterministic(self) -> None:
         first = build_mixed_training_records(
             self.single_biencoder, self.single_reranker, self.compositional,
-            self.skills, self.semantic, multiplier=3, seed=42,
+            self.skills, self.semantic, biencoder_multi_loss_weight=1.5,
+            reranker_multi_loss_weight=3.0, seed=42,
         )
         second = build_mixed_training_records(
             self.single_biencoder, self.single_reranker, self.compositional,
-            self.skills, self.semantic, multiplier=3, seed=42,
+            self.skills, self.semantic, biencoder_multi_loss_weight=1.5,
+            reranker_multi_loss_weight=3.0, seed=42,
         )
 
         self.assertEqual(first, second)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Protocol
 
@@ -27,6 +28,7 @@ class CompositionalGenerationConfig:
     temperature: float = 0.2
     max_new_tokens: int = 1024
     max_attempts: int = 2
+    concurrency: int = 16
     min_query_words: int = 30
     max_query_words: int = 260
 
@@ -77,24 +79,28 @@ def generate_compositional_queries(
         except Exception:
             pass
 
-    for candidate in candidates:
+    def process_candidate(
+        candidate: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
         candidate_id = candidate.get("candidate_id")
         skill_ids = candidate.get("skill_ids")
         if not isinstance(candidate_id, str) or not candidate_id:
-            failures.append(_failure(candidate, 0, "candidate_id is required"))
-            report_progress(candidate)
-            continue
+            return None, _failure(candidate, 0, "candidate_id is required"), None
         if not isinstance(skill_ids, list) or len(skill_ids) not in (2, 3) or not all(
             isinstance(skill_id, str) and skill_id for skill_id in skill_ids
         ):
-            failures.append(_failure(candidate, 0, "candidate must contain two or three skill_ids"))
-            report_progress(candidate)
-            continue
+            return (
+                None,
+                _failure(candidate, 0, "candidate must contain two or three skill_ids"),
+                None,
+            )
         missing = [skill_id for skill_id in skill_ids if skill_id not in contract_by_id]
         if missing:
-            failures.append(_failure(candidate, 0, f"missing validated contracts: {missing}"))
-            report_progress(candidate)
-            continue
+            return (
+                None,
+                _failure(candidate, 0, f"missing validated contracts: {missing}"),
+                None,
+            )
 
         messages = build_compositional_messages(candidate, contract_by_id, config)
         last_error = "generation did not return a valid payload"
@@ -111,22 +117,30 @@ def generate_compositional_queries(
                     )
                 )
                 record = _validate_payload(candidate, contract_by_id, payload, config, attempt)
-            except (TypeError, ValueError) as exc:
+            except Exception as exc:
                 last_error = str(exc)
                 continue
-            queries.append(record)
+            review = None
             if attempt > 1 or candidate.get("candidate_type") == "triple":
-                review_queue.append(
-                    {
-                        "query_id": record["query_id"],
-                        "candidate_id": candidate_id,
-                        "reason": "retried_generation" if attempt > 1 else "triple_candidate",
-                    }
-                )
-            report_progress(candidate)
-            break
-        else:
-            failures.append(_failure(candidate, config.max_attempts, last_error))
+                review = {
+                    "query_id": record["query_id"],
+                    "candidate_id": candidate_id,
+                    "reason": "retried_generation" if attempt > 1 else "triple_candidate",
+                }
+            return record, None, review
+        return None, _failure(candidate, config.max_attempts, last_error), None
+
+    candidate_records = list(candidates)
+    workers = min(config.concurrency, max(1, len(candidate_records)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        outcomes = executor.map(process_candidate, candidate_records)
+        for candidate, (query, failure, review) in zip(candidate_records, outcomes):
+            if query is not None:
+                queries.append(query)
+            if failure is not None:
+                failures.append(failure)
+            if review is not None:
+                review_queue.append(review)
             report_progress(candidate)
 
     return CompositionalGenerationResult(queries, failures, review_queue)
@@ -384,6 +398,8 @@ def _failure(candidate: dict[str, Any], attempts: int, error: str) -> dict[str, 
 
 
 def _validate_config(config: CompositionalGenerationConfig) -> None:
+    if config.concurrency <= 0:
+        raise ValueError("concurrency must be positive")
     if config.max_attempts <= 0:
         raise ValueError("max_attempts must be positive")
     if config.max_new_tokens <= 0:

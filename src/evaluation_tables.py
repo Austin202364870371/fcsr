@@ -24,21 +24,21 @@ FINAL_SYSTEMS = (
     ("Flat-Dense + Base Reranker", "Rerank", "reranker", "dense-base-reranker"),
     ("SkillRouter", "Rerank", "reranker", "skillrouter"),
     ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
-    ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
+    ("Ours: FCSR + MultiSkill-Weighted", "Rerank", "reranker", "fcsr-multiskill-weighted"),
     (
-        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
+        "Ours: RRF (Base Emb.) + FCSR MultiSkill-Weighted",
         "Rerank",
         "reranker",
-        "rrf-base-emb-multiskill3x",
+        "rrf-base-emb-multiskill-weighted",
     ),
 )
 
 OPTIONAL_FINAL_SYSTEMS = (
     (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-Weighted",
         "Rerank",
         "reranker",
-        "rrf-fcsr-emb-multiskill3x",
+        "rrf-fcsr-emb-multiskill-weighted",
     ),
 )
 
@@ -49,29 +49,29 @@ TWO_STAGE_SYSTEMS = (
     ("SkillRouter", "Rerank", "reranker", "skillrouter"),
     ("Ours: FCSR", "Retrieval", "retrieval", "fcsr-single"),
     ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
-    ("Ours: FCSR + MultiSkill-3x", "Retrieval", "retrieval", "fcsr-multiskill3x"),
-    ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
-    ("Ours: RRF (Base Emb.) + FCSR MultiSkill-3x", "Retrieval", "retrieval", "hybrid"),
+    ("Ours: FCSR + MultiSkill-Weighted", "Retrieval", "retrieval", "fcsr-multiskill-weighted"),
+    ("Ours: FCSR + MultiSkill-Weighted", "Rerank", "reranker", "fcsr-multiskill-weighted"),
+    ("Ours: RRF (Base Emb.) + FCSR MultiSkill-Weighted", "Retrieval", "retrieval", "hybrid"),
     (
-        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
+        "Ours: RRF (Base Emb.) + FCSR MultiSkill-Weighted",
         "Rerank",
         "reranker",
-        "rrf-base-emb-multiskill3x",
+        "rrf-base-emb-multiskill-weighted",
     ),
 )
 
 OPTIONAL_TWO_STAGE_SYSTEMS = (
     (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-Weighted",
         "Retrieval",
         "retrieval",
-        "rrf-fcsr-emb-multiskill3x",
+        "rrf-fcsr-emb-multiskill-weighted",
     ),
     (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-Weighted",
         "Rerank",
         "reranker",
-        "rrf-fcsr-emb-multiskill3x",
+        "rrf-fcsr-emb-multiskill-weighted",
     ),
 )
 

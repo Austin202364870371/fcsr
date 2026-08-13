@@ -31,14 +31,15 @@ def build_mixed_training_records(
     skills: Iterable[dict[str, Any]],
     semantic_candidates: Mapping[str, list[dict[str, Any]]],
     *,
-    multiplier: int,
+    biencoder_multi_loss_weight: float,
+    reranker_multi_loss_weight: float,
     seed: int,
     overlap_threshold: float = 0.85,
     progress: Any | None = None,
 ) -> MixedTrainingBuildResult:
     """Build mixed data while treating every Skill in a composition as positive."""
-    if multiplier <= 0:
-        raise ValueError("multiplier must be positive")
+    if biencoder_multi_loss_weight <= 0 or reranker_multi_loss_weight <= 0:
+        raise ValueError("multi-Skill loss weights must be positive")
 
     skill_records = _valid_skills(skills)
     lookup = {record["skill_id"]: record for record in skill_records}
@@ -52,8 +53,14 @@ def build_mixed_training_records(
         progress=progress,
     )
 
-    biencoder_records = list(single_biencoder_records)
-    reranker_groups = list(single_reranker_groups)
+    biencoder_records = [
+        {**record, "training_type": "single_skill", "loss_weight": 1.0}
+        for record in single_biencoder_records
+    ]
+    reranker_groups = [
+        {**group, "training_type": "single_skill", "loss_weight": 1.0}
+        for group in single_reranker_groups
+    ]
     compositional_biencoder_examples = 0
     compositional_reranker_groups = 0
     expanded_reranker_records: list[dict[str, Any]] = []
@@ -62,37 +69,37 @@ def build_mixed_training_records(
         query_id = _required_query_id(record)
         positive_ids = _positive_ids(record, lookup)
         negatives = mined[query_id]
-        for repeat_index in range(1, multiplier + 1):
-            replica_id = _replica_query_id(query_id, repeat_index)
-            for positive_index, positive_id in enumerate(positive_ids, start=1):
-                biencoder_records.append(
-                    {
-                        "query_id": f"{replica_id}::positive-{positive_index}",
-                        "source_query_id": query_id,
-                        "repeat_index": repeat_index,
-                        "query": record.get("query"),
-                        "positive_skill_id": positive_id,
-                        "positive_skill_ids": list(positive_ids),
-                        "source_hashes": record.get("source_hashes", []),
-                        "negative_candidates": negatives,
-                    }
-                )
-                compositional_biencoder_examples += 1
-            expanded_reranker_records.append(
+        for positive_index, positive_id in enumerate(positive_ids, start=1):
+            biencoder_records.append(
                 {
-                    "query_id": replica_id,
+                    "query_id": f"{query_id}::positive-{positive_index}",
                     "source_query_id": query_id,
-                    "repeat_index": repeat_index,
                     "query": record.get("query"),
+                    "positive_skill_id": positive_id,
                     "positive_skill_ids": list(positive_ids),
-                    "retrieved_candidates": [
-                        {"skill_id": skill_id, "score": 1.0}
-                        for skill_id in positive_ids
-                    ]
-                    + negatives,
+                    "source_hashes": record.get("source_hashes", []),
+                    "negative_candidates": negatives,
+                    "training_type": "multi_skill",
+                    "loss_weight": biencoder_multi_loss_weight,
                 }
             )
-            compositional_reranker_groups += 1
+            compositional_biencoder_examples += 1
+        expanded_reranker_records.append(
+            {
+                "query_id": query_id,
+                "source_query_id": query_id,
+                "query": record.get("query"),
+                "positive_skill_ids": list(positive_ids),
+                "retrieved_candidates": [
+                    {"skill_id": skill_id, "score": 1.0}
+                    for skill_id in positive_ids
+                ]
+                + negatives,
+                "training_type": "multi_skill",
+                "loss_weight": reranker_multi_loss_weight,
+            }
+        )
+        compositional_reranker_groups += 1
 
     compositional_groups = build_reranker_groups(
         expanded_reranker_records,
@@ -232,10 +239,6 @@ def _required_query_id(record: Mapping[str, Any]) -> str:
     if not isinstance(query_id, str) or not query_id:
         raise ValueError("record must contain a non-empty query_id")
     return query_id
-
-
-def _replica_query_id(query_id: str, repeat_index: int) -> str:
-    return f"{query_id}::repeat-{repeat_index}"
 
 
 def _skill_search_text(skill: Mapping[str, Any]) -> str:

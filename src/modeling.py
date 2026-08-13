@@ -217,6 +217,8 @@ def build_biencoder_examples(
                     format_skill(skill_lookup[skill_id]) for skill_id in negative_ids
                 ],
                 "negative_sources": negative_sources,
+                "training_type": record.get("training_type", "single_skill"),
+                "loss_weight": float(record.get("loss_weight", 1.0)),
             }
         )
     return examples
@@ -227,6 +229,7 @@ def info_nce_loss(
     document_embeddings: Any,
     positive_indices: Any,
     temperature: float,
+    reduction: str = "mean",
 ) -> Any:
     if temperature <= 0:
         raise ValueError("temperature must be positive")
@@ -250,7 +253,11 @@ def info_nce_loss(
     queries = functional.normalize(query_embeddings, p=2, dim=1)
     documents = functional.normalize(document_embeddings, p=2, dim=1)
     logits = queries @ documents.transpose(0, 1) / temperature
-    return functional.cross_entropy(logits, positive_indices.long())
+    if reduction not in {"mean", "none"}:
+        raise ValueError("reduction must be mean or none")
+    return functional.cross_entropy(
+        logits, positive_indices.long(), reduction=reduction
+    )
 
 from dataclasses import dataclass
 
@@ -321,6 +328,8 @@ def build_reranker_groups(
                 "query": record.get("query"),
                 "candidates": group_candidates,
                 "positive_mask": positive_mask,
+                "training_type": record.get("training_type", "single_skill"),
+                "loss_weight": float(record.get("loss_weight", 1.0)),
             }
         )
         if progress is not None:

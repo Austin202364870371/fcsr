@@ -13,17 +13,17 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 LIMIT="${LIMIT:-50}"
 OVERWRITE="${OVERWRITE:-0}"
+CONCURRENCY="${CONCURRENCY:-16}"
 
 cd "$PROJECT_DIR"
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$PROJECT_DIR/env-qgen"
 mkdir -p "$PROJECT_DIR/logs"
 
-arguments=(
-  --model deepseek-v4-flash
-  --concurrency 16
-  --limit "$LIMIT"
-)
+arguments=(--model deepseek-v4-flash --concurrency "$CONCURRENCY")
+if [[ -n "$LIMIT" ]]; then
+  arguments+=(--limit "$LIMIT")
+fi
 if [[ "$OVERWRITE" == "1" ]]; then
   arguments+=(--overwrite)
 fi

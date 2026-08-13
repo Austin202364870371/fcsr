@@ -339,6 +339,16 @@ class _ContractWorkItem:
     finish_reason: str | None = None
 
 
+@dataclass
+class _QueryWorkItem:
+    skill: dict[str, Any]
+    source_hash: str
+    contract: dict[str, Any]
+    attempts: int = 0
+    query: str | None = None
+    error: Exception | None = None
+
+
 def build_contract_messages(
     skill: dict[str, Any],
     validation_error: str | None = None,
@@ -692,6 +702,8 @@ def generate_queries(
     config: LLMConfig,
     progress: Callable[[PipelineSummary], None] | None = None,
 ) -> PipelineSummary:
+    if config.batch_size <= 0:
+        raise ValueError("batch_size must be positive")
     contracts = {
         (record.get("skill_id"), record.get("source_hash")): record
         for record in _stream_if_exists(contracts_path)
@@ -700,104 +712,132 @@ def generate_queries(
         (record.get("positive_skill_id"), record.get("source_hash"))
         for record in _stream_if_exists(output_path)
     }
+    scheduled = set(completed)
     counts = {"attempted": 0, "succeeded": 0, "skipped": 0, "failed": 0}
 
-    for index, skill in enumerate(stream_jsonl(sample_path)):
-        if config.limit is not None and index >= config.limit:
-            break
-        source_hash = compute_source_hash(skill)
-        key = (skill.get("skill_id"), source_hash)
-        if key in completed:
-            counts["skipped"] += 1
-            if progress is not None:
-                progress(PipelineSummary(**counts))
-            continue
-
-        counts["attempted"] += 1
-        contract = contracts.get(key)
-        if contract is None:
+    def finish(item: _QueryWorkItem) -> None:
+        key = (item.skill.get("skill_id"), item.source_hash)
+        if item.query is None:
             counts["failed"] += 1
             _append_jsonl(
                 failure_path,
                 _failure_record(
                     "query",
-                    skill,
-                    source_hash,
-                    0,
-                    ValueError("missing contract for current source hash"),
+                    item.skill,
+                    item.source_hash,
+                    item.attempts,
+                    item.error,
                 ),
             )
-            if progress is not None:
-                progress(PipelineSummary(**counts))
-            continue
-
-        generated_query = None
-        error: Exception | None = None
-        attempts = 0
-        validation_error: str | None = None
-        for attempts in range(1, config.max_attempts + 1):
-            try:
-                response = client.complete(
-                    messages=build_query_messages(skill, contract, validation_error),
-                    temperature=config.temperature,
-                )
-                payload = _parse_json_object(response)
-                query = payload.get("query")
-                if not isinstance(query, str) or not query.strip():
-                    raise ValueError("generated query must be a non-empty string")
-                query = query.strip()
-                word_count = len(query.split())
-                if not 80 <= word_count <= 180:
-                    raise ValueError(
-                        "generated query must contain 80-180 English words; "
-                        f"received {word_count}"
-                    )
-                if _contains_skill_name(query, str(skill.get("name", ""))):
-                    raise ValueError("generated query contains the source skill name")
-                generated_query = query
-                break
-            except Exception as exc:
-                error = exc
-                generated_query = None
-                validation_error = (
-                    f"{type(exc).__name__}: {exc}"
-                    if isinstance(exc, ValueError)
-                    else None
-                )
-                _retry_sleep(config, attempts)
-
-        if generated_query is None:
-            counts["failed"] += 1
+        else:
             _append_jsonl(
-                failure_path,
-                _failure_record("query", skill, source_hash, attempts, error),
-            )
-            if progress is not None:
-                progress(PipelineSummary(**counts))
-            continue
-
-        _append_jsonl(
-            output_path,
-            {
-                "query_id": f"syn::{skill['skill_id']}",
-                "query": generated_query,
-                "positive_skill_id": skill["skill_id"],
-                "source_hash": source_hash,
-                "generator": {
-                    "provider": config.provider,
-                    "model": config.model,
-                    "prompt_version": config.query_prompt_version,
-                    "attempts": attempts,
+                output_path,
+                {
+                    "query_id": f"syn::{item.skill['skill_id']}",
+                    "query": item.query,
+                    "positive_skill_id": item.skill["skill_id"],
+                    "source_hash": item.source_hash,
+                    "generator": {
+                        "provider": config.provider,
+                        "model": config.model,
+                        "prompt_version": config.query_prompt_version,
+                        "attempts": item.attempts,
+                    },
                 },
-            },
-        )
-        completed.add(key)
-        counts["succeeded"] += 1
+            )
+            completed.add(key)
+            counts["succeeded"] += 1
         if progress is not None:
             progress(PipelineSummary(**counts))
 
+    active: dict[Future[_QueryWorkItem], _QueryWorkItem] = {}
+    with ThreadPoolExecutor(max_workers=config.batch_size) as executor:
+        for index, skill in enumerate(stream_jsonl(sample_path)):
+            if config.limit is not None and index >= config.limit:
+                break
+            source_hash = compute_source_hash(skill)
+            key = (skill.get("skill_id"), source_hash)
+            if key in scheduled:
+                counts["skipped"] += 1
+                if progress is not None:
+                    progress(PipelineSummary(**counts))
+                continue
+
+            counts["attempted"] += 1
+            scheduled.add(key)
+            contract = contracts.get(key)
+            if contract is None:
+                finish(
+                    _QueryWorkItem(
+                        skill=skill,
+                        source_hash=source_hash,
+                        contract={},
+                        error=ValueError("missing contract for current source hash"),
+                    )
+                )
+                continue
+
+            while len(active) >= config.batch_size:
+                done, _ = wait(active, return_when=FIRST_COMPLETED)
+                for future in done:
+                    active.pop(future)
+                    finish(future.result())
+
+            item = _QueryWorkItem(skill=skill, source_hash=source_hash, contract=contract)
+            active[executor.submit(_generate_query_item, item, client, config)] = item
+
+        while active:
+            done, _ = wait(active, return_when=FIRST_COMPLETED)
+            for future in done:
+                active.pop(future)
+                finish(future.result())
+
     _prune_resolved_failures(failure_path, "query", completed)
     return PipelineSummary(**counts)
+
+
+def _generate_query_item(
+    item: _QueryWorkItem,
+    client: Any,
+    config: LLMConfig,
+) -> _QueryWorkItem:
+    validation_error: str | None = None
+    for attempt in range(1, config.max_attempts + 1):
+        item.attempts = attempt
+        try:
+            response = client.complete(
+                messages=build_query_messages(
+                    item.skill, item.contract, validation_error
+                ),
+                temperature=config.temperature,
+            )
+            payload = _parse_json_object(response)
+            query = payload.get("query")
+            if not isinstance(query, str) or not query.strip():
+                raise ValueError("generated query must be a non-empty string")
+            query = query.strip()
+            word_count = len(query.split())
+            if not 80 <= word_count <= 180:
+                raise ValueError(
+                    "generated query must contain 80-180 English words; "
+                    f"received {word_count}"
+                )
+            if _contains_skill_name(query, str(item.skill.get("name", ""))):
+                raise ValueError("generated query contains the source skill name")
+        except Exception as exc:
+            item.error = exc
+            item.query = None
+            validation_error = (
+                f"{type(exc).__name__}: {exc}"
+                if isinstance(exc, ValueError)
+                else None
+            )
+            _retry_sleep(config, attempt)
+        else:
+            item.query = query
+            item.error = None
+            break
+    return item
 
 
 _EVIDENCE_SOURCE_FIELDS = ("name", "description", "body")

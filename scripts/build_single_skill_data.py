@@ -66,7 +66,10 @@ def build_parser() -> argparse.ArgumentParser:
     queries.add_argument("--sample", default="data/contracts_32k/sample_skills.jsonl.gz")
     queries.add_argument("--contracts", default="data/contracts_32k_prompt006/contracts.jsonl.gz")
     queries.add_argument("--output", default="data/synthetic/single_skill_v1/queries.jsonl.gz")
-    queries.add_argument("--failures", default="data/contracts_32k_prompt006/failures.jsonl.gz")
+    queries.add_argument(
+        "--failures",
+        default="data/synthetic/single_skill_v1/query_failures.jsonl.gz",
+    )
     queries.add_argument("--no-progress", action="store_true")
 
     local = subparsers.add_parser(

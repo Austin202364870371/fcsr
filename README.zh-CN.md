@@ -27,7 +27,7 @@ data/
     single_skill_v1/             单 Skill 查询和训练记录
     multiskill_v1/               已验证候选、LLM 查询与 manifest
   training/
-    multiskill3x/                混合训练集（Git 忽略）
+    multiskill_weighted/         单遍、按任务类型加权的混合训练集（Git 忽略）
 docs/                            研究问题说明与参考文献
 jobs/                            Slurm 任务模板
 scripts/
@@ -64,8 +64,9 @@ python -B -m unittest discover -s tests -v
 
 Contract 抽取和 LLM 查询生成使用 `deepseek-v4-flash`，关闭思考模式并启用
 JSON Output。复制 `.env.example` 为 `.env`，填写 `DEEPSEEK_API_KEY`，不要提交
-该文件。Contract 抽取严格保持“一条 Skill 对应一个 API 请求”，同时最多运行
-16 个独立请求。
+该文件。Contract 抽取、单 Skill query 和多 Skill query 都严格保持“一条输入对应
+一个 API 请求”，同时最多运行 16 个独立请求。请求池会持续补位；失败只重试当前
+条目，不会重跑已经成功的条目。
 
 ## 数据构建
 
@@ -99,20 +100,28 @@ python -B scripts/build_multiskill_candidates.py
 
 # DeepSeek 只为已验证候选写自然语言任务。
 python -B scripts/generate_multiskill_queries.py `
-  --model deepseek-v4-flash --max-attempts 3 --progress
+  --model deepseek-v4-flash --concurrency 16 --max-attempts 3 --progress
 ```
 
 生成器会校验 JSON 结构、正例 Skill ID 及顺序、source hash、子任务覆盖和依赖 DAG。结果写入 `data/synthetic/multiskill_v1/` 下的 `queries.jsonl.gz`、`failures.jsonl.gz` 与 `review_queue.jsonl.gz`。
 
 ### 3. 构建混合训练集
 
-`multiskill3x` 保留全部单 Skill 样本，并将每个原始多 Skill 任务组确定性重复三次。每个正例 Skill 展开为一条 Bi-Encoder 样本；Reranker 保留同一任务内全部正例的多标签 group。负例只从 Easy pool 挖掘，并排除全部正例 Skill ID。
+`multiskill_weighted` 中每个原始 query/group 只保存一次，不再做三倍复制。
+pair/triple 在 Bi-Encoder 中仍按不同正例 Skill 各展开一条，这是完整正例监督，
+不是重复采样；Reranker 仍是一条 query 对应一个多标签 group。负例只从 Easy pool
+挖掘，并排除全部正例 Skill ID。每个 epoch 会把单、多 Skill 样本整体打乱交错训练。
+
+默认对多 Skill Bi-Encoder 样本使用 `1.5` 损失权重，对多 Skill Reranker group
+使用 `3.0` 权重。按预计原始比例，两阶段的有效多 Skill 梯度占比约为 18%–21%。
+这两个权重是首轮工程设定，应进行消融，并不是文献给出的固定常数。
 
 ```bash
 python -B scripts/build_multiskill_training_data.py \
   --negative-model models/Qwen3-Embedding-0.6B \
-  --multiplier 3 \
-  --output-dir data/training/multiskill3x
+  --biencoder-multi-loss-weight 1.5 \
+  --reranker-multi-loss-weight 3.0 \
+  --output-dir data/training/multiskill_weighted
 ```
 
 ## 模型训练
@@ -121,19 +130,22 @@ python -B scripts/build_multiskill_training_data.py \
 
 ```bash
 python -B scripts/train_biencoder.py \
-  --train-data data/training/multiskill3x/biencoder.jsonl.gz \
+  --train-data data/training/multiskill_weighted/biencoder.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Embedding-0.6B \
-  --output-dir checkpoints/fcsr-emb-0.6b-multiskill3x
+  --output-dir checkpoints/fcsr-emb-0.6b-multiskill-weighted
 
 python -B scripts/train_reranker.py train \
-  --groups data/training/multiskill3x/reranker.jsonl.gz \
+  --groups data/training/multiskill_weighted/reranker.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Reranker-0.6B \
-  --output-dir checkpoints/fcsr-rank-0.6b-multiskill3x
+  --output-dir checkpoints/fcsr-rank-0.6b-multiskill-weighted
 ```
 
-单 Skill 基线不需要构建混合集，使用默认训练输入和 `checkpoints/fcsr-emb-0.6b`、`checkpoints/fcsr-rank-0.6b` 即可。
+单 Skill 基线不需要构建混合集，但需要显式传入
+`data/synthetic/single_skill_v1/train_biencoder.jsonl.gz` 或
+`data/synthetic/single_skill_v1/train_reranker.jsonl.gz`，checkpoint 建议命名为
+`fcsr-emb-0.6b-single` 和 `fcsr-rank-0.6b-single`。
 
 ## 评测
 
@@ -153,17 +165,17 @@ python -B scripts/evaluate.py hybrid \
 python -B scripts/evaluate.py rerank \
   --retrieval-records reports/retrieval/hard/hybrid/records.jsonl \
   --skills data/raw/skills_hard.jsonl.gz \
-  --model checkpoints/fcsr-rank-0.6b-multiskill3x \
+  --model checkpoints/fcsr-rank-0.6b-multiskill-weighted \
   --top-k 10 \
-  --output-predictions reports/reranker/hard/rrf-base-emb-multiskill3x/predictions.json \
-  --output-records reports/reranker/hard/rrf-base-emb-multiskill3x/records.jsonl
+  --output-predictions reports/reranker/hard/rrf-base-emb-multiskill-weighted/predictions.json \
+  --output-records reports/reranker/hard/rrf-base-emb-multiskill-weighted/records.jsonl
 
 python -B scripts/evaluate.py score \
   --tasks data/raw/evaluation_queries.jsonl.gz \
   --skills data/raw/skills_hard.jsonl.gz \
-  --predictions reports/reranker/hard/rrf-base-emb-multiskill3x/predictions.json \
+  --predictions reports/reranker/hard/rrf-base-emb-multiskill-weighted/predictions.json \
   --stage reranker --tier hard \
-  --output-dir reports/reranker/hard/rrf-base-emb-multiskill3x
+  --output-dir reports/reranker/hard/rrf-base-emb-multiskill-weighted
 
 # 输出最终系统表和两阶段消融表。
 python -B scripts/render_evaluation_tables.py
@@ -175,6 +187,23 @@ python -B scripts/render_evaluation_tables.py
 - `reports/tables/hard-two-stage-ablation.md`：仅比较两阶段系统的 retrieval 与 rerank。
 
 最终表中的加粗仅表示数值最大，不表示统计显著性。
+
+## 32k 数据比例与文献依据
+
+旧版 8k 数据包含 7,342 条单 Skill query 和 541 条多 Skill query，原始比例约为
+93.1% : 6.9%。如果新一轮候选产出率接近，32k 规模可先按约 30k–31.5k 条单
+Skill query、2.2k–2.4k 条多 Skill query 规划；最终必须以新 manifest 的实际数量
+为准。由于 pair/triple 会在 Bi-Encoder 侧按正例展开，Bi-Encoder 的原始多 Skill
+记录占比预计约 13%–15%，不能给两个模型机械地使用同一个采样倍数。
+
+多任务文献通常把任务比例作为采样或优化策略：动态/学习式任务采样可以优于均匀
+采样，交错任务有助于缓解遗忘；检索研究也指出朴素多任务混合不一定优于任务专门化
+模型。因此本项目采用“不复制数据、按 epoch 整体打乱、分模型设置类型损失权重”的
+可审计方案。参考：
+[Dynamic Sampling Strategies](https://aclanthology.org/2020.acl-main.86/)、
+[Learning Task Sampling Policy](https://aclanthology.org/2021.findings-emnlp.375/)、
+[Multi-Task Retrieval](https://aclanthology.org/2021.acl-long.89/) 和
+[Promoting Task Specialization](https://aclanthology.org/2023.tacl-1.68/)。
 
 ## Slurm API 生成
 
@@ -209,6 +238,18 @@ operations/constraints 最多 12 条、outputs 最多 10 条、其余集合最�
 sbatch jobs/generate_multiskill_deepseek.sbatch
 ```
 
+单 Skill 32k query 使用独立模板：
+
+```bash
+sbatch jobs/generate_single_skill_deepseek_32k.sbatch
+```
+
+多 Skill 模板默认只运行 50 条 pilot；全量运行使用：
+
+```bash
+sbatch --export=ALL,LIMIT= jobs/generate_multiskill_deepseek.sbatch
+```
+
 ## 迁移已有本地或服务器数据
 
 此次重构仅改变命名，不改变数据 schema。`git pull` 后新目录中已经有受跟踪的 manifest，因此只合并被 Git 忽略的数据文件：
@@ -220,7 +261,7 @@ rsync -a --exclude manifest.json data/synthetic/compositional_v1/ \
   data/synthetic/multiskill_v1/
 mv data/synthetic/multiskill_v1/compositional_queries.jsonl.gz \
   data/synthetic/multiskill_v1/queries.jsonl.gz
-mv data/training/rq1-mixed-3x data/training/multiskill3x
+# 旧 3x 记录不能靠改名迁移；请用新版脚本重新构建 weighted 数据。
 mv data/processed/contract_fn_review.jsonl.gz \
   data/processed/semantic_negative_review.jsonl.gz
 mv data/processed/synthetic_top20.json \

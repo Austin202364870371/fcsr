@@ -23,11 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="build Contract-guided pair and triple candidates for multi-Skill tasks"
     )
-    parser.add_argument("--contracts", type=Path, default=Path("data/contracts/contracts.jsonl.gz"))
+    parser.add_argument(
+        "--contracts",
+        type=Path,
+        default=Path("data/contracts_32k_prompt006/contracts.jsonl.gz"),
+    )
     parser.add_argument(
         "--queries",
         type=Path,
-        default=Path("data/synthetic/single_v1/queries.jsonl.gz"),
+        default=Path("data/synthetic/single_skill_v1/queries.jsonl.gz"),
     )
     parser.add_argument("--tasks", type=Path, default=Path("data/raw/evaluation_queries.jsonl.gz"))
     parser.add_argument(

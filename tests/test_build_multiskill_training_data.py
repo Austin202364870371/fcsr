@@ -15,11 +15,12 @@ from scripts.build_multiskill_training_data import (
 
 
 class BuildMultiskillTrainingDataTests(unittest.TestCase):
-    def test_parser_defaults_to_the_threefold_multiskill_layout(self) -> None:
+    def test_parser_defaults_to_the_weighted_single_pass_layout(self) -> None:
         args = build_parser().parse_args([])
 
-        self.assertEqual(args.multiplier, 3)
-        self.assertEqual(args.output_dir, Path("data/training/multiskill3x"))
+        self.assertEqual(args.biencoder_multi_loss_weight, 1.5)
+        self.assertEqual(args.reranker_multi_loss_weight, 3.0)
+        self.assertEqual(args.output_dir, Path("data/training/multiskill_weighted"))
         self.assertEqual(args.semantic_top_k, 64)
 
     def test_semantic_filter_rejects_candidates_close_to_any_positive(self) -> None:
@@ -104,10 +105,11 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
             ):
                 summary = run(args)
 
-            self.assertEqual(summary["biencoder_records"], 7)
-            self.assertEqual(summary["reranker_groups"], 4)
+            self.assertEqual(summary["biencoder_records"], 3)
+            self.assertEqual(summary["reranker_groups"], 2)
             groups = list(stream_jsonl(output_dir / "reranker.jsonl.gz"))
             self.assertEqual(sum(groups[1]["positive_mask"]), 2)
+            self.assertEqual(groups[1]["loss_weight"], 3.0)
     def test_manifest_records_sources_and_output_counts(self) -> None:
         manifest = build_manifest(
             single_biencoder_path=Path("single-bi.jsonl.gz"),
@@ -116,7 +118,8 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
             skills_path=Path("skills.jsonl.gz"),
             negative_model="models/Qwen3-Embedding-0.6B",
             semantic_top_k=96,
-            multiplier=3,
+            biencoder_multi_loss_weight=1.5,
+            reranker_multi_loss_weight=3.0,
             seed=42,
             counts={
                 "single_biencoder": 7342,
@@ -127,8 +130,10 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(manifest["schema_version"], "multiskill_training_v1")
-        self.assertEqual(manifest["sampling"]["multiskill_multiplier"], 3)
+        self.assertEqual(manifest["schema_version"], "multiskill_training_v2")
+        self.assertEqual(manifest["mixture"]["biencoder_multi_loss_weight"], 1.5)
+        self.assertEqual(manifest["mixture"]["reranker_multi_loss_weight"], 3.0)
+        self.assertFalse(manifest["mixture"]["replicated_multiskill_queries"])
         self.assertEqual(manifest["negative_mining"]["semantic_top_k"], 96)
         self.assertEqual(manifest["outputs"]["biencoder"]["records"], 10741)
 

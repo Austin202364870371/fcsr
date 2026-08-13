@@ -20,6 +20,8 @@ class RerankerTests(unittest.TestCase):
                 "query_id": "keep",
                 "query": "task",
                 "positive_skill_id": "p",
+                "training_type": "multi_skill",
+                "loss_weight": 3.0,
                 "retrieved_candidates": [
                     {"skill_id": "n", "score": 0.8},
                     {"skill_id": "p", "score": 0.7},
@@ -45,6 +47,8 @@ class RerankerTests(unittest.TestCase):
         self.assertEqual(len(result.groups), 1)
         group = result.groups[0]
         self.assertEqual(group["positive_mask"], [False, True])
+        self.assertEqual(group["training_type"], "multi_skill")
+        self.assertEqual(group["loss_weight"], 3.0)
         self.assertEqual([item["rank"] for item in group["candidates"]], [1, 2])
         self.assertNotIn("prompt", group["candidates"][0])
         self.assertEqual(processed, [1, 1])

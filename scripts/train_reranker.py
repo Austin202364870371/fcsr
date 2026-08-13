@@ -7,6 +7,7 @@ import json
 import math
 import random
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
@@ -161,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     train = commands.add_parser("train", help="train Qwen3-Reranker listwise")
     train.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
     train.add_argument(
-        "--groups", default="data/synthetic/single_skill_v1/train_reranker.jsonl.gz"
+        "--groups", default="data/training/multiskill_weighted/reranker.jsonl.gz"
     )
     train.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     train.add_argument("--model")
@@ -262,8 +263,17 @@ def summarize_groups(
     )
     if invalid:
         raise ValueError(f"{invalid} groups are empty or contain no positive")
+    type_counts = Counter(group.get("training_type", "single_skill") for group in groups)
+    weighted_type_mass: Counter[str] = Counter()
+    for group in groups:
+        weight = float(group.get("loss_weight", 1.0))
+        if weight <= 0:
+            raise ValueError("reranker loss weights must be positive")
+        weighted_type_mass[group.get("training_type", "single_skill")] += weight
     return {
         "groups": len(groups),
+        "training_types": dict(sorted(type_counts.items())),
+        "weighted_type_mass": dict(sorted(weighted_type_mass.items())),
         "mean_candidates": (
             sum(candidate_counts) / len(candidate_counts) if candidate_counts else 0.0
         ),
@@ -397,6 +407,10 @@ def train(
                     scores,
                     torch.tensor(group["positive_mask"], device=device),
                 )
+                loss_weight = float(group.get("loss_weight", 1.0))
+                if loss_weight <= 0:
+                    raise ValueError("reranker loss weights must be positive")
+                loss = loss * loss_weight
             (loss / accumulation).backward()
             loss_value = float(loss.detach().cpu())
             accumulation_count += 1

@@ -128,6 +128,24 @@ class ConcurrentFakeClient:
         return json.dumps(response, ensure_ascii=False)
 
 
+class ConcurrentQueryFakeClient:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+        self.calls = 0
+
+    def complete(self, **kwargs: object) -> str:
+        with self.lock:
+            self.calls += 1
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        time.sleep(0.02)
+        with self.lock:
+            self.active -= 1
+        return json.dumps({"query": valid_generated_query()})
+
+
 class LLMPreprocessingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
@@ -776,6 +794,46 @@ class LLMPreprocessingTests(unittest.TestCase):
             "contract_query_prompt_005",
         )
 
+    def test_queries_keep_independent_requests_continuously_in_flight(self) -> None:
+        second_skill = {
+            **SKILL,
+            "skill_id": "design/mobile-controls",
+            "name": "mobile controls",
+        }
+        skills = [SKILL, second_skill]
+        write_jsonl_atomic(self.sample, skills)
+        write_jsonl_atomic(
+            self.contracts,
+            [
+                {
+                    **semantic_contract(),
+                    "skill_id": skill["skill_id"],
+                    "source_hash": compute_source_hash(skill),
+                }
+                for skill in skills
+            ],
+        )
+        client = ConcurrentQueryFakeClient()
+
+        summary = generate_queries(
+            self.sample,
+            self.contracts,
+            self.queries,
+            self.failures,
+            client,
+            LLMConfig(
+                model="deepseek-v4-flash",
+                max_attempts=1,
+                backoff_seconds=0,
+                batch_size=2,
+            ),
+        )
+
+        self.assertEqual(summary.succeeded, 2)
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(client.max_active, 2)
+        self.assertEqual(len(load_jsonl(self.queries)), 2)
+
     def test_query_progress_reports_each_succeeded_or_skipped_skill(self) -> None:
         extract_contracts(
             self.sample,
@@ -800,7 +858,7 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertEqual(summary.succeeded, 1)
         self.assertEqual(summary.skipped, 1)
         self.assertEqual(len(updates), 2)
-        self.assertEqual(updates[0].succeeded, 1)
+        self.assertEqual(updates[0].skipped, 1)
         self.assertEqual(updates[1], summary)
 
     def test_query_outside_word_limit_is_retried(self) -> None:

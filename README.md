@@ -27,7 +27,7 @@ data/
     single_skill_v1/             Single-skill queries and training records
     multiskill_v1/               Validated candidates, LLM queries, and manifests
   training/
-    multiskill3x/                Generated mixed training data (ignored by Git)
+    multiskill_weighted/         Single-pass, type-weighted mixed data (ignored by Git)
 docs/                            Research-question notes and references
 jobs/                            Slurm job templates
 scripts/
@@ -65,7 +65,9 @@ On CUDA hosts, install the PyTorch build matching the host CUDA environment befo
 Contract extraction and LLM-authored queries use `deepseek-v4-flash` with thinking
 disabled and JSON Output enabled. Copy `.env.example` to `.env`, set
 `DEEPSEEK_API_KEY`, and never commit that file. Contract extraction sends exactly one
-Skill per request and maintains a bounded pool of 16 concurrent requests.
+Skill per request and maintains a bounded pool of 16 concurrent requests. Single- and
+multi-Skill query generation use the same continuously refilled request pool; a retry
+occupies only the failed item's worker and never replays a successful item.
 
 ## Data Pipeline
 
@@ -99,20 +101,31 @@ python -B scripts/build_multiskill_candidates.py
 
 # DeepSeek writes tasks only for validated candidates.
 python -B scripts/generate_multiskill_queries.py `
-  --model deepseek-v4-flash --max-attempts 3 --progress
+  --model deepseek-v4-flash --concurrency 16 --max-attempts 3 --progress
 ```
 
 The generator validates JSON structure, exact positive Skill IDs and order, source hashes, subtask coverage, and the dependency DAG. It writes `queries.jsonl.gz`, `failures.jsonl.gz`, and `review_queue.jsonl.gz` under `data/synthetic/multiskill_v1/`.
 
 ### 3. Build Mixed Training Data
 
-`multiskill3x` keeps all single-skill examples and deterministically repeats each original multi-skill task group three times. Each positive Skill becomes a bi-encoder example; the reranker keeps all positives in one multi-label group. Negatives are mined only from the Easy pool and exclude every positive Skill ID.
+`multiskill_weighted` stores every original query/group exactly once; there are no
+threefold copies. A pair or triple still produces one bi-encoder record per distinct
+positive Skill because each positive label must be trained once. The reranker keeps the
+same query as one multi-label group. Negatives come only from the Easy pool and exclude
+every positive Skill ID. Each epoch shuffles all single- and multi-Skill records together.
+
+The default type weights are `1.5` for multi-Skill bi-encoder records and `3.0` for
+multi-Skill reranker groups. They keep the on-disk distribution natural while raising
+the expected multi-Skill gradient share from roughly 13–15% to 18–21% for the
+bi-encoder and from roughly 6–8% to 16–21% for the reranker. These are explicit starting
+points for ablation, not literature-derived constants.
 
 ```bash
 python -B scripts/build_multiskill_training_data.py \
   --negative-model models/Qwen3-Embedding-0.6B \
-  --multiplier 3 \
-  --output-dir data/training/multiskill3x
+  --biencoder-multi-loss-weight 1.5 \
+  --reranker-multi-loss-weight 3.0 \
+  --output-dir data/training/multiskill_weighted
 ```
 
 ## Training
@@ -121,19 +134,22 @@ The following commands use local Hugging Face model directories and produce clea
 
 ```bash
 python -B scripts/train_biencoder.py \
-  --train-data data/training/multiskill3x/biencoder.jsonl.gz \
+  --train-data data/training/multiskill_weighted/biencoder.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Embedding-0.6B \
-  --output-dir checkpoints/fcsr-emb-0.6b-multiskill3x
+  --output-dir checkpoints/fcsr-emb-0.6b-multiskill-weighted
 
 python -B scripts/train_reranker.py train \
-  --groups data/training/multiskill3x/reranker.jsonl.gz \
+  --groups data/training/multiskill_weighted/reranker.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Reranker-0.6B \
-  --output-dir checkpoints/fcsr-rank-0.6b-multiskill3x
+  --output-dir checkpoints/fcsr-rank-0.6b-multiskill-weighted
 ```
 
-For the single-skill baseline, omit the mixed build step and use the default inputs with `checkpoints/fcsr-emb-0.6b` and `checkpoints/fcsr-rank-0.6b`.
+For the single-skill baseline, omit the mixed build step and explicitly pass
+`data/synthetic/single_skill_v1/train_biencoder.jsonl.gz` or
+`data/synthetic/single_skill_v1/train_reranker.jsonl.gz`, with checkpoint names
+`fcsr-emb-0.6b-single` and `fcsr-rank-0.6b-single`.
 
 ## Evaluation
 
@@ -153,17 +169,17 @@ python -B scripts/evaluate.py hybrid \
 python -B scripts/evaluate.py rerank \
   --retrieval-records reports/retrieval/hard/hybrid/records.jsonl \
   --skills data/raw/skills_hard.jsonl.gz \
-  --model checkpoints/fcsr-rank-0.6b-multiskill3x \
+  --model checkpoints/fcsr-rank-0.6b-multiskill-weighted \
   --top-k 10 \
-  --output-predictions reports/reranker/hard/rrf-base-emb-multiskill3x/predictions.json \
-  --output-records reports/reranker/hard/rrf-base-emb-multiskill3x/records.jsonl
+  --output-predictions reports/reranker/hard/rrf-base-emb-multiskill-weighted/predictions.json \
+  --output-records reports/reranker/hard/rrf-base-emb-multiskill-weighted/records.jsonl
 
 python -B scripts/evaluate.py score \
   --tasks data/raw/evaluation_queries.jsonl.gz \
   --skills data/raw/skills_hard.jsonl.gz \
-  --predictions reports/reranker/hard/rrf-base-emb-multiskill3x/predictions.json \
+  --predictions reports/reranker/hard/rrf-base-emb-multiskill-weighted/predictions.json \
   --stage reranker --tier hard \
-  --output-dir reports/reranker/hard/rrf-base-emb-multiskill3x
+  --output-dir reports/reranker/hard/rrf-base-emb-multiskill-weighted
 
 # Render one final-system table and one two-stage ablation table.
 python -B scripts/render_evaluation_tables.py
@@ -213,9 +229,44 @@ The multi-Skill API generation template is
 sbatch jobs/generate_multiskill_deepseek.sbatch
 ```
 
+The full single-Skill query job is:
+
+```bash
+sbatch jobs/generate_single_skill_deepseek_32k.sbatch
+```
+
+Both templates default to 16 independent requests in flight. The multi-Skill template
+defaults to a 50-candidate pilot; submit the full candidate file with
+`sbatch --export=ALL,LIMIT= jobs/generate_multiskill_deepseek.sbatch`.
+
+## Why Weighted Mixing Instead of 3x Copies
+
+The previous 8k run contained 7,342 single-Skill and 541 validated multi-Skill queries,
+or about 93.1% versus 6.9% before expansion. A 32k run should therefore be planned as
+roughly 30k–31.5k single-Skill plus 2.2k–2.4k multi-Skill queries if candidate yield is
+similar; the actual counts must come from the new manifests. Pair/triple positive
+expansion makes the bi-encoder's raw multi-Skill record share higher than the query
+share, so using one sampling multiplier for both models is not well calibrated.
+
+Multi-task literature generally treats task proportions as an optimization policy:
+interleaving tasks can reduce forgetting, and performance-aware or learned task
+sampling can outperform uniform sampling. Retrieval work also warns that naive
+multi-task mixing can trail task-specialized models. Accordingly, FCSR preserves each
+original example once, interleaves both types by epoch shuffling, and applies separate
+model-specific weights. See [Dynamic Sampling Strategies for Multi-Task Reading
+Comprehension](https://aclanthology.org/2020.acl-main.86/), [Learning Task Sampling
+Policy for Multitask Learning](https://aclanthology.org/2021.findings-emnlp.375/),
+[Multi-Task Retrieval for Knowledge-Intensive Tasks](https://aclanthology.org/2021.acl-long.89/),
+and [Improving Multitask Retrieval by Promoting Task
+Specialization](https://aclanthology.org/2023.tacl-1.68/). The default weights are an
+FCSR engineering choice and should be compared against `1.0/1.0` and at least one
+stronger weighting setting under the same epoch and seed budget.
+
 ## Migrating Existing Local or Server Data
 
-The refactor changes only names, not data schemas. After `git pull`, the new directories already contain their tracked manifests, so merge only ignored data files into them:
+Older local data may use the paths below. After `git pull`, merge only ignored data
+files into the renamed synthetic directories. The weighted mixed-training schema is
+new and must be rebuilt rather than obtained by renaming old 3x records:
 
 ```bash
 rsync -a --exclude manifest.json data/synthetic/single_v1/ \
@@ -224,7 +275,7 @@ rsync -a --exclude manifest.json data/synthetic/compositional_v1/ \
   data/synthetic/multiskill_v1/
 mv data/synthetic/multiskill_v1/compositional_queries.jsonl.gz \
   data/synthetic/multiskill_v1/queries.jsonl.gz
-mv data/training/rq1-mixed-3x data/training/multiskill3x
+# Rebuild mixed data with the weighted builder; do not rename old 3x records.
 mv data/processed/contract_fn_review.jsonl.gz \
   data/processed/semantic_negative_review.jsonl.gz
 mv data/processed/synthetic_top20.json \

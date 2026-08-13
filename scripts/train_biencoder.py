@@ -51,7 +51,10 @@ def enable_checkpoint_input_gradients(model: Any) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train the FCSR Qwen bi-encoder")
     parser.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
-    parser.add_argument("--train-data", default="data/synthetic/single_skill_v1/train_biencoder.jsonl.gz")
+    parser.add_argument(
+        "--train-data",
+        default="data/training/multiskill_weighted/biencoder.jsonl.gz",
+    )
     parser.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     parser.add_argument("--model")
     parser.add_argument("--output-dir")
@@ -137,8 +140,17 @@ def summarize_examples(
         source for example in examples for source in example["negative_sources"]
     )
     negatives = [len(example["negative_skill_ids"]) for example in examples]
+    type_counts = Counter(example.get("training_type", "single_skill") for example in examples)
+    weighted_type_mass: Counter[str] = Counter()
+    for example in examples:
+        weight = float(example.get("loss_weight", 1.0))
+        if weight <= 0:
+            raise ValueError("biencoder loss weights must be positive")
+        weighted_type_mass[example.get("training_type", "single_skill")] += weight
     return {
         "examples": len(examples),
+        "training_types": dict(sorted(type_counts.items())),
+        "weighted_type_mass": dict(sorted(weighted_type_mass.items())),
         "negative_sources": dict(sorted(sources.items())),
         "mean_negatives": sum(negatives) / len(negatives) if negatives else 0.0,
         "effective_query_batch_size": (
@@ -268,7 +280,16 @@ def train(
                     document_embeddings,
                     torch.tensor(positive_indices, device=device),
                     settings["temperature"],
+                    reduction="none",
                 )
+                weights = torch.tensor(
+                    [float(example.get("loss_weight", 1.0)) for example in batch],
+                    dtype=loss.dtype,
+                    device=device,
+                )
+                if bool((weights <= 0).any()):
+                    raise ValueError("biencoder loss weights must be positive")
+                loss = (loss * weights).mean()
             (loss / accumulation).backward()
             loss_value = float(loss.detach().cpu())
             history.append(

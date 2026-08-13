@@ -23,7 +23,7 @@ from retrieval import embedding_false_negative_filter, semantic_topk
 from multiskill_training_data import build_mixed_training_records
 
 
-DEFAULT_OUTPUT_DIR = Path("data/training/multiskill3x")
+DEFAULT_OUTPUT_DIR = Path("data/training/multiskill_weighted")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,7 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="local base embedding model used only to mine semantic negatives",
     )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--multiplier", type=int, default=3)
+    parser.add_argument("--biencoder-multi-loss-weight", type=float, default=1.5)
+    parser.add_argument("--reranker-multi-loss-weight", type=float, default=3.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--semantic-top-k", type=int, default=64)
     parser.add_argument("--semantic-fn-threshold", type=float, default=0.95)
@@ -101,7 +102,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             multiskill_queries,
             skills,
             semantic_candidates,
-            multiplier=args.multiplier,
+            biencoder_multi_loss_weight=args.biencoder_multi_loss_weight,
+            reranker_multi_loss_weight=args.reranker_multi_loss_weight,
             seed=args.seed,
             progress=progress.update,
         )
@@ -124,7 +126,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         negative_model=args.negative_model,
         semantic_top_k=args.semantic_top_k,
         semantic_fn_threshold=args.semantic_fn_threshold,
-        multiplier=args.multiplier,
+        biencoder_multi_loss_weight=args.biencoder_multi_loss_weight,
+        reranker_multi_loss_weight=args.reranker_multi_loss_weight,
         seed=args.seed,
         counts=counts,
     )
@@ -257,13 +260,14 @@ def build_manifest(
     skills_path: Path,
     negative_model: str,
     semantic_top_k: int,
-    multiplier: int,
+    biencoder_multi_loss_weight: float,
+    reranker_multi_loss_weight: float,
     seed: int,
     counts: dict[str, int],
     semantic_fn_threshold: float = 0.95,
 ) -> dict[str, Any]:
     return {
-        "schema_version": "multiskill_training_v1",
+        "schema_version": "multiskill_training_v2",
         "task": "multi_skill_retrieval",
         "storage_format": "jsonl.gz",
         "inputs": {
@@ -279,10 +283,13 @@ def build_manifest(
             "sources": {"semantic": 4, "bm25": 3, "same_category": 2, "random": 1},
             "multi_positive_policy": "exclude_every_positive_skill_id_from_negatives",
         },
-        "sampling": {
-            "multiskill_multiplier": multiplier,
+        "mixture": {
+            "strategy": "single_pass_type_weighted_loss",
+            "biencoder_multi_loss_weight": biencoder_multi_loss_weight,
+            "reranker_multi_loss_weight": reranker_multi_loss_weight,
             "seed": seed,
-            "unit": "original_multiskill_query_group",
+            "replicated_multiskill_queries": False,
+            "interleave_policy": "shuffle_all_examples_each_epoch",
         },
         "counts": counts,
         "outputs": {
@@ -309,8 +316,10 @@ def _validate_inputs(args: argparse.Namespace) -> None:
     ):
         if not path.is_file():
             raise FileNotFoundError(f"input file does not exist: {path}")
-    if args.multiplier <= 0:
-        raise ValueError("multiplier must be positive")
+    if args.biencoder_multi_loss_weight <= 0:
+        raise ValueError("biencoder multi-Skill loss weight must be positive")
+    if args.reranker_multi_loss_weight <= 0:
+        raise ValueError("reranker multi-Skill loss weight must be positive")
     if args.batch_size <= 0:
         raise ValueError("batch_size must be positive")
 

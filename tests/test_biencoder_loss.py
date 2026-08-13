@@ -30,6 +30,8 @@ class BiEncoderTests(unittest.TestCase):
                 "query_id": "q",
                 "query": "complete the task",
                 "positive_skill_id": "p",
+                "training_type": "multi_skill",
+                "loss_weight": 1.5,
                 "negative_candidates": [
                     {"skill_id": "n", "source": "semantic", "score": 0.5}
                 ],
@@ -42,6 +44,8 @@ class BiEncoderTests(unittest.TestCase):
         self.assertEqual(example["positive_skill_id"], "p")
         self.assertEqual(example["negative_skill_ids"], ["n"])
         self.assertEqual(len(example["negative_texts"]), 1)
+        self.assertEqual(example["training_type"], "multi_skill")
+        self.assertEqual(example["loss_weight"], 1.5)
 
     @unittest.skipUnless(
         TORCH_AVAILABLE,
@@ -55,7 +59,9 @@ q = torch.tensor([[1., 0.], [0., 1.]])
 d = torch.tensor([[1., 0.], [0., 1.]])
 aligned = info_nce_loss(q, d, torch.tensor([0, 1]), 0.1)
 permuted = info_nce_loss(q, d, torch.tensor([1, 0]), 0.1)
+per_item = info_nce_loss(q, d, torch.tensor([0, 1]), 0.1, reduction="none")
 assert aligned.item() < permuted.item()
+assert tuple(per_item.shape) == (2,)
 try:
     info_nce_loss(q, d, torch.tensor([0, 1]), 0.0)
 except ValueError:
