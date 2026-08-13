@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=fcsr-contracts-qwen3-8b
 #SBATCH --qos=fast
-#SBATCH --nodelist=GPU2,GPU3,GPU4
+#SBATCH --nodes=1
+#SBATCH --exclude=GPU0,GPU1
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
