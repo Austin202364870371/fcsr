@@ -35,6 +35,16 @@ _BENCHMARK_ID_FIELDS = (
     "all_gold_skill_ids",
 )
 _LANGUAGE_PATTERN = re.compile(r"^[a-z]{2,3}(?:-[a-z0-9]+)*$")
+_CONTRACT_FIELD_LIMITS = {
+    "operations": 12,
+    "inputs": 8,
+    "outputs": 10,
+    "preconditions": 8,
+    "constraints": 12,
+    "dependencies": 8,
+    "exclusions": 8,
+    "quality_criteria": 8,
+}
 
 
 @dataclass(frozen=True)
@@ -258,7 +268,7 @@ class LLMConfig:
     max_attempts: int = 3
     backoff_seconds: float = 2.0
     batch_size: int = 1
-    contract_prompt_version: str = "contract_v2_prompt_004"
+    contract_prompt_version: str = "contract_v2_prompt_005"
     query_prompt_version: str = "contract_query_prompt_005"
     limit: int | None = None
 
@@ -397,20 +407,28 @@ def build_contract_messages(
                 "you must never invent, negate, generalize, or add an item merely to fill the "
                 "response shape. Extract atomic facts that are explicitly supported by the "
                 "source. Classify each fact into its most specific field and avoid duplicating "
-                "the same fact across fields unless the source explicitly assigns both roles. "
+                "the same fact across fields. Order every array from the most central and useful "
+                "fact to the least important. Return at most 12 operations, 12 constraints, 10 "
+                "outputs, and 8 items in each other array. "
                 "Operations are actions the Skill performs, not headings or broad descriptions. "
-                "Inputs are artifacts consumed; outputs are artifacts produced. Preconditions "
-                "must hold before execution. Constraints are explicit must, never, limit, or "
+                "Inputs are artifacts consumed; outputs are artifacts produced. A phrase that "
+                "only says when a user should invoke this Skill is neither an input nor a "
+                "precondition. Preconditions must hold before execution. Constraints are explicit "
+                "must, never, limit, or "
                 "format requirements. Dependencies are external software, services, hardware, "
                 "data, or knowledge actually required. Exclusions require an explicit forbidden "
                 "or out-of-scope statement; never infer an exclusion from a positive capability, "
-                "recommendation, or implementation detail. Quality criteria require an explicit "
+                "recommendation, or implementation detail. Put implementation prohibitions in "
+                "constraints and overall unsupported or out-of-scope behavior in exclusions; "
+                "never emit the same fact in both. Quality criteria require an explicit "
                 "check, acceptance condition, threshold, or observable success condition. Every "
                 "retained item must cite at least one exact contiguous quote copied from name, "
                 "description, or body. Copy quotes without reconstructing code or removing "
                 "Markdown markers such as **, backticks, brackets, punctuation, or whitespace. "
-                "Prefer short quotes contained within one source line. If no exact supporting "
-                "quote exists, omit the item."
+                "Prefer the shortest sufficient quote contained within one source line, ideally "
+                "under 240 characters. Never copy an entire fenced code block as evidence; cite "
+                "the shortest exact line that supports the fact. If no exact supporting quote "
+                "exists, omit the item."
             ),
         },
         {
@@ -917,11 +935,35 @@ def _materialize_contract(
         "exclusions",
         "quality_criteria",
     )
-    converted: dict[str, list[dict[str, Any]]] = {}
+    semantic_collections: dict[str, list[dict[str, Any]]] = {}
     for field in collection_fields:
         items = semantic[field]
         if not isinstance(items, list):
             raise ValueError(f"{field} must be a list")
+        semantic_collections[field] = items
+
+    constraint_evidence = {
+        key
+        for item in semantic_collections["constraints"]
+        for key in _semantic_evidence_keys(item)
+    }
+    filtered_exclusions: list[dict[str, Any]] = []
+    for index, item in enumerate(semantic_collections["exclusions"]):
+        if constraint_evidence.intersection(_semantic_evidence_keys(item)):
+            warnings.append(
+                f"dropped_cross_field_duplicate:exclusions[{index}]:constraints"
+            )
+        else:
+            filtered_exclusions.append(item)
+    semantic_collections["exclusions"] = filtered_exclusions
+
+    converted: dict[str, list[dict[str, Any]]] = {}
+    for field in collection_fields:
+        items = semantic_collections[field]
+        limit = _CONTRACT_FIELD_LIMITS[field]
+        if len(items) > limit:
+            warnings.append(f"field_item_limit_applied:{field}:{len(items)}:{limit}")
+            items = items[:limit]
         converted[field] = []
         for index, item in enumerate(items):
             context = f"{field}[{index}]"
@@ -955,6 +997,23 @@ def _materialize_contract(
             "warnings": list(dict.fromkeys(warnings)),
         },
     }
+
+
+def _semantic_evidence_keys(item: Any) -> set[tuple[str, str]]:
+    if not isinstance(item, dict):
+        return set()
+    quotes = item.get("evidence_quotes")
+    if not isinstance(quotes, list):
+        return set()
+    keys: set[tuple[str, str]] = set()
+    for citation in quotes:
+        if not isinstance(citation, dict):
+            continue
+        source_field = citation.get("source_field")
+        quote = citation.get("quote")
+        if isinstance(source_field, str) and isinstance(quote, str) and quote.strip():
+            keys.add((source_field, " ".join(quote.split()).casefold()))
+    return keys
 
 def _parse_json_object(response: Any) -> dict[str, Any]:
     if not isinstance(response, str):

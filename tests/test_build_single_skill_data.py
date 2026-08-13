@@ -21,6 +21,10 @@ class BuildSingleSkillDataTests(unittest.TestCase):
         self.assertEqual(
             contracts.sample, "data/contracts_32k/sample_skills.jsonl.gz"
         )
+        self.assertEqual(
+            contracts.output,
+            "data/contracts_32k_prompt005/contracts.jsonl.gz",
+        )
 
     def test_progress_can_be_disabled_for_supported_commands(self) -> None:
         parser = build_parser()

@@ -78,8 +78,8 @@ python -B scripts/build_single_skill_data.py sample `
 python -B scripts/build_single_skill_data.py contracts `
   --model deepseek-v4-flash --concurrency 16 `
   --sample data/contracts_32k/sample_skills.jsonl.gz `
-  --output data/contracts_32k/contracts.jsonl.gz `
-  --failures data/contracts_32k/failures.jsonl.gz
+  --output data/contracts_32k_prompt005/contracts.jsonl.gz `
+  --failures data/contracts_32k_prompt005/failures.jsonl.gz
 
 # Contract-grounded queries, local negatives, then GPU semantic negatives.
 python -B scripts/build_single_skill_data.py queries
@@ -195,10 +195,13 @@ sbatch jobs/extract_contracts_deepseek_32k.sbatch
 Each request contains one Skill; `CONCURRENCY=16` controls only how many independent
 requests are in flight. Completed records are validated and appended individually.
 Existing `(skill_id, source_hash)` records are skipped, so resubmitting the formal job
-resumes safely. Contract responses allow up to 6,144 output tokens. Terminal failures
+resumes safely. Prompt 005 orders fields by importance and enforces caps of 12
+operations, 12 constraints, 10 outputs, and 8 items for every other collection;
+the materializer applies the same caps and removes constraint/exclusion duplicates
+that cite the same evidence. Contract responses allow up to 6,144 output tokens. Terminal failures
 record the last raw response and provider `finish_reason` when available, which makes
 truncation distinguishable from malformed JSON. The formal output is
-`data/contracts_32k/contracts.jsonl.gz`.
+`data/contracts_32k_prompt005/contracts.jsonl.gz`.
 
 The multi-Skill API generation template is
 [jobs/generate_multiskill_deepseek.sbatch](jobs/generate_multiskill_deepseek.sbatch):

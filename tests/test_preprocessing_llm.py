@@ -358,7 +358,61 @@ class LLMPreprocessingTests(unittest.TestCase):
             messages[0]["content"],
         )
         self.assertIn("Quality criteria require an explicit check", messages[0]["content"])
-        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_004")
+        self.assertIn("at most 12 operations", messages[0]["content"])
+        self.assertIn("neither an input nor a precondition", messages[0]["content"])
+        self.assertIn("Never copy an entire fenced code block", messages[0]["content"])
+        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_005")
+
+    def test_contract_materializer_caps_fields_and_deduplicates_exclusions(self) -> None:
+        semantic = semantic_contract()
+        operation = semantic["operations"][0]
+        semantic["operations"] = [
+            {**copy.deepcopy(operation), "action": f"action-{index}"}
+            for index in range(14)
+        ]
+        semantic["constraints"] = [
+            {
+                "statement": f"constraint-{index}",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": SKILL["body"]}
+                ],
+            }
+            for index in range(13)
+        ]
+        semantic["exclusions"] = [
+            {
+                "statement": "duplicate implementation prohibition",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": SKILL["body"]}
+                ],
+            },
+            {
+                "statement": "separate exclusion",
+                "evidence_quotes": [
+                    {"source_field": "description", "quote": SKILL["description"]}
+                ],
+            },
+        ]
+
+        summary = extract_contracts(
+            self.sample,
+            self.contracts,
+            self.failures,
+            FakeClient([semantic]),
+            self.config,
+        )
+
+        self.assertEqual(summary.succeeded, 1)
+        contract = load_jsonl(self.contracts)[0]
+        self.assertEqual(len(contract["operations"]), 12)
+        self.assertEqual(len(contract["constraints"]), 12)
+        self.assertEqual(len(contract["exclusions"]), 1)
+        warnings = contract["extraction"]["warnings"]
+        self.assertIn("field_item_limit_applied:operations:14:12", warnings)
+        self.assertIn("field_item_limit_applied:constraints:13:12", warnings)
+        self.assertIn(
+            "dropped_cross_field_duplicate:exclusions[0]:constraints", warnings
+        )
 
     def test_query_prompt_requires_single_skill_grounding(self) -> None:
         client = FakeClient([semantic_contract()])

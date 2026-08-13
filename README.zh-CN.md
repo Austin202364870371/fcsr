@@ -78,8 +78,8 @@ python -B scripts/build_single_skill_data.py sample `
 python -B scripts/build_single_skill_data.py contracts `
   --model deepseek-v4-flash --concurrency 16 `
   --sample data/contracts_32k/sample_skills.jsonl.gz `
-  --output data/contracts_32k/contracts.jsonl.gz `
-  --failures data/contracts_32k/failures.jsonl.gz
+  --output data/contracts_32k_prompt005/contracts.jsonl.gz `
+  --failures data/contracts_32k_prompt005/failures.jsonl.gz
 
 # 生成查询、局部负例，再在 GPU 上挖掘语义负例。
 python -B scripts/build_single_skill_data.py queries
@@ -193,10 +193,12 @@ sbatch jobs/extract_contracts_deepseek_32k.sbatch
 
 每个请求只包含一条 Skill；`CONCURRENCY=16` 只控制同时在途的独立请求数。
 每条完成后会单独校验并追加保存。正式输出按 `(skill_id, source_hash)` 跳过
-已完成记录，因此中断后可以安全续跑。Contract 最大输出为 6,144 tokens；最终
+已完成记录，因此中断后可以安全续跑。Prompt 005 要求按重要性排序，并限制
+operations/constraints 最多 12 条、outputs 最多 10 条、其余集合最多 8 条；程序端
+应用相同上限，并删除引用相同证据的 constraint/exclusion 重复项。Contract 最大输出为 6,144 tokens；最终
 失败记录会在可用时保存最后一次原始响应和 API `finish_reason`，以便区分长度截断
 与 JSON 语法错误。输出位于
-`data/contracts_32k/contracts.jsonl.gz`。
+`data/contracts_32k_prompt005/contracts.jsonl.gz`。
 
 多 Skill API 生成模板位于
 [jobs/generate_multiskill_deepseek.sbatch](jobs/generate_multiskill_deepseek.sbatch)：

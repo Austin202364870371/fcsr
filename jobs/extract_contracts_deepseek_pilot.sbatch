@@ -12,7 +12,7 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 SAMPLE_DIR="${SAMPLE_DIR:-$PROJECT_DIR/data/contracts_32k}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_deepseek_prompt004_pilot}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_deepseek_prompt005_pilot}"
 LIMIT="${LIMIT:-32}"
 CONCURRENCY="${CONCURRENCY:-16}"
 

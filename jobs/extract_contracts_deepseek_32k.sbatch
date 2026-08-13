@@ -12,12 +12,13 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 SAMPLE_DIR="${SAMPLE_DIR:-$PROJECT_DIR/data/contracts_32k}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_32k_prompt005}"
 CONCURRENCY="${CONCURRENCY:-16}"
 
 cd "$PROJECT_DIR"
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$PROJECT_DIR/env-qgen"
-mkdir -p "$PROJECT_DIR/logs" "$SAMPLE_DIR"
+mkdir -p "$PROJECT_DIR/logs" "$SAMPLE_DIR" "$OUTPUT_DIR"
 
 if [[ ! -f "$SAMPLE_DIR/sample_skills.jsonl.gz" ]]; then
   python -B scripts/build_single_skill_data.py sample \
@@ -29,8 +30,8 @@ fi
 python -B scripts/build_single_skill_data.py contracts \
   --model deepseek-v4-flash \
   --sample "$SAMPLE_DIR/sample_skills.jsonl.gz" \
-  --output "$SAMPLE_DIR/contracts.jsonl.gz" \
-  --failures "$SAMPLE_DIR/failures.jsonl.gz" \
+  --output "$OUTPUT_DIR/contracts.jsonl.gz" \
+  --failures "$OUTPUT_DIR/failures.jsonl.gz" \
   --concurrency "$CONCURRENCY" \
   --max-new-tokens 6144 \
   --max-attempts 3 \
