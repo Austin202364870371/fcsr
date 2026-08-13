@@ -16,7 +16,8 @@ data/training/
 checkpoints/
 reports/
 models/
-logs/
+logs/*
+!logs/.gitkeep
 .cache/
 .vscode/
 env-qgen/
