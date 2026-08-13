@@ -89,6 +89,25 @@ class FakeClient:
         return json.dumps(response, ensure_ascii=False)
 
 
+class BatchFakeClient:
+    def __init__(self, response_batches: list[list[object]]) -> None:
+        self.response_batches = list(response_batches)
+        self.calls: list[dict[str, object]] = []
+
+    def complete_many(self, **kwargs: object) -> list[str]:
+        self.calls.append(kwargs)
+        responses = self.response_batches.pop(0)
+        return [
+            response
+            if isinstance(response, str)
+            else json.dumps(response, ensure_ascii=False)
+            for response in responses
+        ]
+
+    def complete(self, **_: object) -> str:
+        raise AssertionError("batched extraction must not call complete")
+
+
 class LLMPreprocessingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
@@ -359,6 +378,37 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertEqual(summary.succeeded, 1)
         self.assertEqual(client.calls, 2)
         self.assertEqual(load_jsonl(self.contracts)[0]["extraction"]["attempts"], 2)
+
+    def test_contract_batch_retries_only_rejected_items(self) -> None:
+        second_skill = {**SKILL, "skill_id": "design/affordances-mobile"}
+        write_jsonl_atomic(self.sample, [SKILL, second_skill])
+        invalid = semantic_contract("not present in the source")
+        client = BatchFakeClient(
+            [
+                [invalid, semantic_contract()],
+                [semantic_contract()],
+            ]
+        )
+        config = LLMConfig(
+            model="models/Qwen3-8B",
+            max_attempts=2,
+            backoff_seconds=0,
+            batch_size=2,
+        )
+
+        summary = extract_contracts(
+            self.sample,
+            self.contracts,
+            self.failures,
+            client,
+            config,
+        )
+
+        self.assertEqual(summary.succeeded, 2)
+        self.assertEqual([len(call["messages_batch"]) for call in client.calls], [2, 1])
+        contracts = {item["skill_id"]: item for item in load_jsonl(self.contracts)}
+        self.assertEqual(contracts[SKILL["skill_id"]]["extraction"]["attempts"], 2)
+        self.assertEqual(contracts[second_skill["skill_id"]]["extraction"]["attempts"], 1)
 
     def test_evidence_mismatch_is_written_to_failures(self) -> None:
         client = FakeClient(

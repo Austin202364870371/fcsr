@@ -11,6 +11,8 @@ class BuildSingleSkillDataTests(unittest.TestCase):
         queries = parser.parse_args(["queries"])
         self.assertEqual(contracts.model, "models/Qwen3-8B")
         self.assertEqual(queries.model, "models/Qwen3-8B")
+        self.assertEqual(contracts.batch_size, 8)
+        self.assertEqual(queries.batch_size, 8)
 
     def test_progress_can_be_disabled_for_supported_commands(self) -> None:
         parser = build_parser()

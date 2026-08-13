@@ -15,8 +15,9 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 MODEL_PATH="${MODEL_PATH:-$PROJECT_DIR/models/Qwen3-8B}"
 SAMPLE_PATH="${SAMPLE_PATH:-$PROJECT_DIR/data/contracts/sample_skills.jsonl.gz}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_local_qwen3_8b_prompt003}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_local_qwen3_8b_prompt003_batch8}"
 LIMIT="${LIMIT:-32}"
+BATCH_SIZE="${BATCH_SIZE:-8}"
 
 cd "$PROJECT_DIR"
 source "$(conda info --base)/etc/profile.d/conda.sh"
@@ -25,6 +26,8 @@ conda activate "$PROJECT_DIR/env-qgen"
 export HF_HOME="$PROJECT_DIR/.cache/huggingface"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 mkdir -p "$PROJECT_DIR/logs" "$OUTPUT_DIR"
 
@@ -36,6 +39,7 @@ arguments=(
   --output "$OUTPUT_DIR/contracts.jsonl.gz"
   --failures "$OUTPUT_DIR/failures.jsonl.gz"
   --max-new-tokens 3072
+  --batch-size "$BATCH_SIZE"
   --max-attempts 3
   --backoff 0
 )

@@ -48,7 +48,7 @@ class CompositionalGenerationProgress:
 
 
 class TransformersJsonClient:
-    """Single-process Qwen client for a Slurm-allocated local GPU."""
+    """Batched Qwen client for a single Slurm-allocated local GPU."""
 
     def __init__(self, model_name_or_path: str, device: str = "cuda") -> None:
         try:
@@ -62,9 +62,14 @@ class TransformersJsonClient:
         self._torch = torch
         self._device = device
         self._tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, local_files_only=True)
+        if self._tokenizer.pad_token_id is None:
+            self._tokenizer.pad_token = self._tokenizer.eos_token
+        self._tokenizer.padding_side = "left"
         self._model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
             torch_dtype=dtype,
+            attn_implementation="sdpa",
+            low_cpu_mem_usage=True,
             local_files_only=True,
         ).to(device)
         self._model.eval()
@@ -76,31 +81,99 @@ class TransformersJsonClient:
         temperature: float,
         max_new_tokens: int,
     ) -> str:
+        return self.complete_many(
+            [messages],
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+        )[0]
+
+    def complete_many(
+        self,
+        messages_batch: list[list[dict[str, str]]],
+        *,
+        temperature: float,
+        max_new_tokens: int,
+    ) -> list[str]:
+        """Generate a response for every message list in one padded GPU batch."""
+        if not messages_batch:
+            return []
+        prompts = [self._format_prompt(messages) for messages in messages_batch]
+        return self._generate_prompts(
+            prompts,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+        )
+
+    def _format_prompt(self, messages: list[dict[str, str]]) -> str:
         try:
-            prompt = self._tokenizer.apply_chat_template(
+            return self._tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
                 add_generation_prompt=True,
                 enable_thinking=False,
             )
         except TypeError:
-            prompt = self._tokenizer.apply_chat_template(
+            return self._tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
                 add_generation_prompt=True,
             )
-        inputs = self._tokenizer(prompt, return_tensors="pt").to(self._device)
+
+    def _generate_prompts(
+        self,
+        prompts: list[str],
+        *,
+        temperature: float,
+        max_new_tokens: int,
+    ) -> list[str]:
+        try:
+            return self._generate_prompts_once(
+                prompts,
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+            )
+        except self._torch.cuda.OutOfMemoryError:
+            if len(prompts) == 1 or not self._device.startswith("cuda"):
+                raise
+            self._torch.cuda.empty_cache()
+            midpoint = len(prompts) // 2
+            return self._generate_prompts(
+                prompts[:midpoint],
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+            ) + self._generate_prompts(
+                prompts[midpoint:],
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+            )
+
+    def _generate_prompts_once(
+        self,
+        prompts: list[str],
+        *,
+        temperature: float,
+        max_new_tokens: int,
+    ) -> list[str]:
+        inputs = self._tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+        ).to(self._device)
         generation = {
             "max_new_tokens": max_new_tokens,
             "do_sample": temperature > 0,
             "pad_token_id": self._tokenizer.eos_token_id,
+            "use_cache": True,
         }
         if temperature > 0:
             generation.update({"temperature": temperature, "top_p": 0.95})
         with self._torch.inference_mode():
             output = self._model.generate(**inputs, **generation)
-        response_tokens = output[0, inputs["input_ids"].shape[1] :]
-        return self._tokenizer.decode(response_tokens, skip_special_tokens=True)
+        prompt_width = inputs["input_ids"].shape[1]
+        return self._tokenizer.batch_decode(
+            output[:, prompt_width:],
+            skip_special_tokens=True,
+        )
 
 
 def generate_compositional_queries(

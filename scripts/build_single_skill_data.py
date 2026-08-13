@@ -103,6 +103,7 @@ def _add_llm_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", default="models/Qwen3-8B")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--max-new-tokens", type=int, default=3072)
+    parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--backoff", type=float, default=2.0)
@@ -172,6 +173,19 @@ class LocalTransformersClient:
             max_new_tokens=self._max_new_tokens,
         )
 
+    def complete_many(
+        self,
+        *,
+        messages_batch: list[list[dict[str, str]]],
+        temperature: float,
+        **_: object,
+    ) -> list[str]:
+        return self._client.complete_many(
+            messages_batch,
+            temperature=temperature,
+            max_new_tokens=self._max_new_tokens,
+        )
+
 
 def build_llm_client(args: argparse.Namespace) -> LocalTransformersClient:
     return LocalTransformersClient(
@@ -187,6 +201,7 @@ def _llm_config(args: argparse.Namespace) -> LLMConfig:
         temperature=args.temperature,
         max_attempts=args.max_attempts,
         backoff_seconds=args.backoff,
+        batch_size=args.batch_size,
         limit=args.limit,
     )
 

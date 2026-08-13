@@ -255,6 +255,7 @@ class LLMConfig:
     temperature: float = 0.0
     max_attempts: int = 3
     backoff_seconds: float = 2.0
+    batch_size: int = 1
     contract_prompt_version: str = "contract_v2_prompt_003"
     query_prompt_version: str = "contract_query_prompt_005"
     limit: int | None = None
@@ -266,6 +267,16 @@ class PipelineSummary:
     succeeded: int = 0
     skipped: int = 0
     failed: int = 0
+
+
+@dataclass
+class _ContractWorkItem:
+    skill: dict[str, Any]
+    source_hash: str
+    attempts: int = 0
+    validation_error: str | None = None
+    contract: dict[str, Any] | None = None
+    error: Exception | None = None
 
 
 def build_contract_messages(
@@ -490,11 +501,40 @@ def extract_contracts(
     config: LLMConfig,
     progress: Callable[[PipelineSummary], None] | None = None,
 ) -> PipelineSummary:
+    if config.batch_size <= 0:
+        raise ValueError("batch_size must be positive")
     completed = {
         (record.get("skill_id"), record.get("source_hash"))
         for record in _stream_if_exists(output_path)
     }
     counts = {"attempted": 0, "succeeded": 0, "skipped": 0, "failed": 0}
+    pending: list[_ContractWorkItem] = []
+
+    def process_pending() -> None:
+        if not pending:
+            return
+        items = _extract_contract_batch(pending, client, config)
+        for item in items:
+            key = (item.skill.get("skill_id"), item.source_hash)
+            if item.contract is None:
+                counts["failed"] += 1
+                _append_jsonl(
+                    failure_path,
+                    _failure_record(
+                        "contract",
+                        item.skill,
+                        item.source_hash,
+                        item.attempts,
+                        item.error,
+                    ),
+                )
+            else:
+                _append_jsonl(output_path, item.contract)
+                completed.add(key)
+                counts["succeeded"] += 1
+            if progress is not None:
+                progress(PipelineSummary(**counts))
+        pending.clear()
 
     for index, skill in enumerate(stream_jsonl(sample_path)):
         if config.limit is not None and index >= config.limit:
@@ -508,48 +548,87 @@ def extract_contracts(
             continue
 
         counts["attempted"] += 1
-        contract = None
-        error: Exception | None = None
-        attempts = 0
-        validation_error: str | None = None
-        for attempts in range(1, config.max_attempts + 1):
+        pending.append(_ContractWorkItem(skill=skill, source_hash=source_hash))
+        if len(pending) >= config.batch_size:
+            process_pending()
+
+    process_pending()
+    _prune_resolved_failures(failure_path, "contract", completed)
+    return PipelineSummary(**counts)
+
+
+def _extract_contract_batch(
+    items: list[_ContractWorkItem],
+    client: Any,
+    config: LLMConfig,
+) -> list[_ContractWorkItem]:
+    active = list(items)
+    for attempt in range(1, config.max_attempts + 1):
+        messages_batch = [
+            build_contract_messages(item.skill, item.validation_error)
+            for item in active
+        ]
+        outcomes = _complete_many(client, messages_batch, config.temperature)
+        retry: list[_ContractWorkItem] = []
+        for item, outcome in zip(active, outcomes):
+            item.attempts = attempt
             try:
-                response = client.complete(
-                    messages=build_contract_messages(skill, validation_error),
-                    temperature=config.temperature,
+                if isinstance(outcome, Exception):
+                    raise outcome
+                semantic = _parse_json_object(outcome)
+                contract = _materialize_contract(
+                    semantic,
+                    item.skill,
+                    config,
+                    attempt,
                 )
-                semantic = _parse_json_object(response)
-                contract = _materialize_contract(semantic, skill, config, attempts)
-                validate_contract(contract, skill)
-                break
+                validate_contract(contract, item.skill)
             except Exception as exc:
-                error = exc
-                contract = None
-                validation_error = (
+                item.error = exc
+                item.contract = None
+                item.validation_error = (
                     f"{type(exc).__name__}: {exc}"
                     if isinstance(exc, ValueError)
                     else None
                 )
-                _retry_sleep(config, attempts)
+                retry.append(item)
+            else:
+                item.contract = contract
+                item.error = None
+        active = retry
+        if not active:
+            break
+        _retry_sleep(config, attempt)
+    return items
 
-        if contract is None:
-            counts["failed"] += 1
-            _append_jsonl(
-                failure_path,
-                _failure_record("contract", skill, source_hash, attempts, error),
+
+def _complete_many(
+    client: Any,
+    messages_batch: list[list[dict[str, str]]],
+    temperature: float,
+) -> list[str | Exception]:
+    complete_many = getattr(client, "complete_many", None)
+    if callable(complete_many):
+        try:
+            responses = complete_many(
+                messages_batch=messages_batch,
+                temperature=temperature,
             )
-            if progress is not None:
-                progress(PipelineSummary(**counts))
-            continue
+            if not isinstance(responses, list) or len(responses) != len(messages_batch):
+                raise ValueError("batch completion returned the wrong number of responses")
+            return responses
+        except Exception as exc:
+            return [exc for _ in messages_batch]
 
-        _append_jsonl(output_path, contract)
-        completed.add(key)
-        counts["succeeded"] += 1
-        if progress is not None:
-            progress(PipelineSummary(**counts))
-
-    _prune_resolved_failures(failure_path, "contract", completed)
-    return PipelineSummary(**counts)
+    outcomes: list[str | Exception] = []
+    for messages in messages_batch:
+        try:
+            outcomes.append(
+                client.complete(messages=messages, temperature=temperature)
+            )
+        except Exception as exc:
+            outcomes.append(exc)
+    return outcomes
 
 
 def generate_queries(
