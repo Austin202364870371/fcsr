@@ -1,4 +1,4 @@
-"""Generate validated multi-Skill synthetic queries with a local Qwen model."""
+"""Generate validated multi-Skill synthetic queries with DeepSeek."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 from typing import Any, Callable
+
+from dotenv import load_dotenv
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,15 +21,15 @@ from multiskill_generation import (
     CompletionClient,
     CompositionalGenerationConfig,
     CompositionalGenerationProgress,
-    TransformersJsonClient,
     generate_compositional_queries,
 )
 from data_io import stream_jsonl, write_jsonl_atomic
+from deepseek_client import DEFAULT_MODEL, DeepSeekJsonClient
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="generate strictly validated multi-Skill queries with a local model"
+        description="generate strictly validated multi-Skill queries with DeepSeek"
     )
     parser.add_argument(
         "--candidates",
@@ -57,8 +59,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data/synthetic/multiskill_v1/manifest.json"),
     )
-    parser.add_argument("--model", default="models/Qwen3-8B")
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--concurrency", type=int, default=16)
+    parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--max-attempts", type=int, default=2)
@@ -85,11 +88,13 @@ def run(args: argparse.Namespace, client: CompletionClient | None = None) -> dic
             "model": args.model,
             "output": args.output.as_posix(),
         }
-    if client is None and not Path(args.model).is_dir():
-        raise FileNotFoundError(
-            f"local model directory does not exist: {args.model}; download it before submitting GPU work"
-        )
-    generator = client or TransformersJsonClient(args.model, args.device)
+    load_dotenv(ROOT / ".env")
+    generator = client or DeepSeekJsonClient(
+        model=args.model,
+        concurrency=args.concurrency,
+        max_tokens=args.max_new_tokens,
+        timeout=args.timeout,
+    )
     progress_bar, progress_callback = _create_progress_callback(
         len(candidates), getattr(args, "progress", None)
     )
@@ -177,9 +182,10 @@ def _update_manifest(path: Path, summary: dict[str, Any], args: argparse.Namespa
         "queries_generated" if summary["failures"] == 0 else "queries_generated_with_failures"
     )
     manifest["query_generation"] = {
-        "provider": "local_transformers",
+        "provider": "deepseek",
         "model": args.model,
-        "device": args.device,
+        "thinking": "disabled",
+        "concurrency": args.concurrency,
         "temperature": args.temperature,
         "max_new_tokens": args.max_new_tokens,
         "max_attempts": args.max_attempts,

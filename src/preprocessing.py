@@ -12,6 +12,7 @@ import re
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
@@ -251,12 +252,13 @@ def _stable_seed(seed: int, value: str) -> int:
 
 @dataclass(frozen=True)
 class LLMConfig:
-    model: str = "models/Qwen3-8B"
+    model: str = "deepseek-v4-flash"
+    provider: str = "deepseek"
     temperature: float = 0.0
     max_attempts: int = 3
     backoff_seconds: float = 2.0
     batch_size: int = 1
-    contract_prompt_version: str = "contract_v2_prompt_003"
+    contract_prompt_version: str = "contract_v2_prompt_004"
     query_prompt_version: str = "contract_query_prompt_005"
     limit: int | None = None
 
@@ -387,22 +389,26 @@ def build_contract_messages(
         {
             "role": "system",
             "content": (
-                "You extract evidence-grounded Skill Contracts. Write all semantic "
-                "fields in concise English, preserve source language tags, and return "
-                "one JSON object only. Never infer unsupported facts. Every retained "
-                "semantic item must cite at least one exact, contiguous quote copied "
-                "from name, description, or body. Copy quotes directly from the source "
-                "JSON without reconstructing code or removing Markdown markers such "
-                "as **, backticks, brackets, punctuation, or whitespace. Prefer short "
-                "quotes contained within one source line. The array entries in the response "
-                "shape are item schemas, not default content. Independently inspect the source "
-                "for every collection field and populate every supported item. Inputs are "
-                "artifacts consumed; outputs are artifacts produced; preconditions must hold "
-                "before execution; constraints are explicit requirements or limitations; "
-                "dependencies are required tools, services, data, hardware, or knowledge; "
-                "exclusions are explicitly out-of-scope behavior; quality criteria are stated "
-                "success or validation conditions. Use an empty array only when the source "
-                "contains no exact evidence for that field. Omit unsupported optional items."
+                "You extract evidence-grounded Skill Contracts. Return one JSON object only. "
+                "Write semantic values in concise English and preserve source language tags. "
+                "Accuracy is more important than field coverage: empty arrays are normal, and "
+                "you must never invent, negate, generalize, or add an item merely to fill the "
+                "response shape. Extract atomic facts that are explicitly supported by the "
+                "source. Classify each fact into its most specific field and avoid duplicating "
+                "the same fact across fields unless the source explicitly assigns both roles. "
+                "Operations are actions the Skill performs, not headings or broad descriptions. "
+                "Inputs are artifacts consumed; outputs are artifacts produced. Preconditions "
+                "must hold before execution. Constraints are explicit must, never, limit, or "
+                "format requirements. Dependencies are external software, services, hardware, "
+                "data, or knowledge actually required. Exclusions require an explicit forbidden "
+                "or out-of-scope statement; never infer an exclusion from a positive capability, "
+                "recommendation, or implementation detail. Quality criteria require an explicit "
+                "check, acceptance condition, threshold, or observable success condition. Every "
+                "retained item must cite at least one exact contiguous quote copied from name, "
+                "description, or body. Copy quotes without reconstructing code or removing "
+                "Markdown markers such as **, backticks, brackets, punctuation, or whitespace. "
+                "Prefer short quotes contained within one source line. If no exact supporting "
+                "quote exists, omit the item."
             ),
         },
         {
@@ -507,128 +513,98 @@ def extract_contracts(
         (record.get("skill_id"), record.get("source_hash"))
         for record in _stream_if_exists(output_path)
     }
+    scheduled = set(completed)
     counts = {"attempted": 0, "succeeded": 0, "skipped": 0, "failed": 0}
-    pending: list[_ContractWorkItem] = []
 
-    def process_pending() -> None:
-        if not pending:
-            return
-        items = _extract_contract_batch(pending, client, config)
-        for item in items:
-            key = (item.skill.get("skill_id"), item.source_hash)
-            if item.contract is None:
-                counts["failed"] += 1
-                _append_jsonl(
-                    failure_path,
-                    _failure_record(
-                        "contract",
-                        item.skill,
-                        item.source_hash,
-                        item.attempts,
-                        item.error,
-                    ),
-                )
-            else:
-                _append_jsonl(output_path, item.contract)
-                completed.add(key)
-                counts["succeeded"] += 1
-            if progress is not None:
-                progress(PipelineSummary(**counts))
-        pending.clear()
+    def finish(item: _ContractWorkItem) -> None:
+        key = (item.skill.get("skill_id"), item.source_hash)
+        if item.contract is None:
+            counts["failed"] += 1
+            _append_jsonl(
+                failure_path,
+                _failure_record(
+                    "contract",
+                    item.skill,
+                    item.source_hash,
+                    item.attempts,
+                    item.error,
+                ),
+            )
+        else:
+            _append_jsonl(output_path, item.contract)
+            completed.add(key)
+            counts["succeeded"] += 1
+        if progress is not None:
+            progress(PipelineSummary(**counts))
 
-    for index, skill in enumerate(stream_jsonl(sample_path)):
-        if config.limit is not None and index >= config.limit:
-            break
-        source_hash = compute_source_hash(skill)
-        key = (skill.get("skill_id"), source_hash)
-        if key in completed:
-            counts["skipped"] += 1
-            if progress is not None:
-                progress(PipelineSummary(**counts))
-            continue
+    active: dict[Future[_ContractWorkItem], _ContractWorkItem] = {}
+    with ThreadPoolExecutor(max_workers=config.batch_size) as executor:
+        for index, skill in enumerate(stream_jsonl(sample_path)):
+            if config.limit is not None and index >= config.limit:
+                break
+            source_hash = compute_source_hash(skill)
+            key = (skill.get("skill_id"), source_hash)
+            if key in scheduled:
+                counts["skipped"] += 1
+                if progress is not None:
+                    progress(PipelineSummary(**counts))
+                continue
 
-        counts["attempted"] += 1
-        pending.append(_ContractWorkItem(skill=skill, source_hash=source_hash))
-        if len(pending) >= config.batch_size:
-            process_pending()
+            while len(active) >= config.batch_size:
+                done, _ = wait(active, return_when=FIRST_COMPLETED)
+                for future in done:
+                    active.pop(future)
+                    finish(future.result())
 
-    process_pending()
+            counts["attempted"] += 1
+            item = _ContractWorkItem(skill=skill, source_hash=source_hash)
+            scheduled.add(key)
+            active[executor.submit(_extract_contract_item, item, client, config)] = item
+
+        while active:
+            done, _ = wait(active, return_when=FIRST_COMPLETED)
+            for future in done:
+                active.pop(future)
+                finish(future.result())
+
     _prune_resolved_failures(failure_path, "contract", completed)
     return PipelineSummary(**counts)
 
 
-def _extract_contract_batch(
-    items: list[_ContractWorkItem],
+def _extract_contract_item(
+    item: _ContractWorkItem,
     client: Any,
     config: LLMConfig,
-) -> list[_ContractWorkItem]:
-    active = list(items)
+) -> _ContractWorkItem:
     for attempt in range(1, config.max_attempts + 1):
-        messages_batch = [
-            build_contract_messages(item.skill, item.validation_error)
-            for item in active
-        ]
-        outcomes = _complete_many(client, messages_batch, config.temperature)
-        retry: list[_ContractWorkItem] = []
-        for item, outcome in zip(active, outcomes):
-            item.attempts = attempt
-            try:
-                if isinstance(outcome, Exception):
-                    raise outcome
-                semantic = _parse_json_object(outcome)
-                contract = _materialize_contract(
-                    semantic,
-                    item.skill,
-                    config,
-                    attempt,
-                )
-                validate_contract(contract, item.skill)
-            except Exception as exc:
-                item.error = exc
-                item.contract = None
-                item.validation_error = (
-                    f"{type(exc).__name__}: {exc}"
-                    if isinstance(exc, ValueError)
-                    else None
-                )
-                retry.append(item)
-            else:
-                item.contract = contract
-                item.error = None
-        active = retry
-        if not active:
+        item.attempts = attempt
+        try:
+            response = client.complete(
+                messages=build_contract_messages(item.skill, item.validation_error),
+                temperature=config.temperature,
+            )
+            semantic = _parse_json_object(response)
+            contract = _materialize_contract(
+                semantic,
+                item.skill,
+                config,
+                attempt,
+            )
+            validate_contract(contract, item.skill)
+        except Exception as exc:
+            item.error = exc
+            item.contract = None
+            item.validation_error = (
+                f"{type(exc).__name__}: {exc}"
+                if isinstance(exc, ValueError)
+                else None
+            )
+        else:
+            item.contract = contract
+            item.error = None
             break
         _retry_sleep(config, attempt)
-    return items
-
-
-def _complete_many(
-    client: Any,
-    messages_batch: list[list[dict[str, str]]],
-    temperature: float,
-) -> list[str | Exception]:
-    complete_many = getattr(client, "complete_many", None)
-    if callable(complete_many):
-        try:
-            responses = complete_many(
-                messages_batch=messages_batch,
-                temperature=temperature,
-            )
-            if not isinstance(responses, list) or len(responses) != len(messages_batch):
-                raise ValueError("batch completion returned the wrong number of responses")
-            return responses
-        except Exception as exc:
-            return [exc for _ in messages_batch]
-
-    outcomes: list[str | Exception] = []
-    for messages in messages_batch:
-        try:
-            outcomes.append(
-                client.complete(messages=messages, temperature=temperature)
-            )
-        except Exception as exc:
-            outcomes.append(exc)
-    return outcomes
+    return item
 
 
 def generate_queries(
@@ -732,7 +708,7 @@ def generate_queries(
                 "positive_skill_id": skill["skill_id"],
                 "source_hash": source_hash,
                 "generator": {
-                    "provider": "local_transformers",
+                    "provider": config.provider,
                     "model": config.model,
                     "prompt_version": config.query_prompt_version,
                     "attempts": attempts,
@@ -963,7 +939,7 @@ def _materialize_contract(
         "evidence": evidence,
         "extraction": {
             "method": "llm",
-            "provider": "local_transformers",
+            "provider": config.provider,
             "model": config.model,
             "prompt_version": config.contract_prompt_version,
             "temperature": config.temperature,

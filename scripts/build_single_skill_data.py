@@ -9,6 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from tqdm import tqdm
+from dotenv import load_dotenv
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +35,7 @@ from preprocessing import (
     sha256_file,
     stratified_sample,
 )
-from multiskill_generation import TransformersJsonClient, VllmJsonClient
+from deepseek_client import DEFAULT_MODEL, DeepSeekJsonClient
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,28 +45,28 @@ def build_parser() -> argparse.ArgumentParser:
     sample = subparsers.add_parser("sample", help="create a deterministic skill sample")
     sample.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     sample.add_argument("--tasks", default="data/raw/evaluation_queries.jsonl.gz")
-    sample.add_argument("--sample-size", type=int, default=8000)
+    sample.add_argument("--sample-size", type=int, default=32000)
     sample.add_argument("--seed", type=int, default=42)
-    sample.add_argument("--output-dir", default="data/contracts")
+    sample.add_argument("--output-dir", default="data/contracts_32k")
     sample.add_argument("--overwrite", action="store_true")
 
     contracts = subparsers.add_parser(
-        "contracts", help="extract evidence-grounded contracts with a local model"
+        "contracts", help="extract evidence-grounded contracts with DeepSeek"
     )
     _add_llm_arguments(contracts)
-    contracts.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
-    contracts.add_argument("--output", default="data/contracts/contracts.jsonl.gz")
-    contracts.add_argument("--failures", default="data/contracts/failures.jsonl.gz")
+    contracts.add_argument("--sample", default="data/contracts_32k/sample_skills.jsonl.gz")
+    contracts.add_argument("--output", default="data/contracts_32k/contracts.jsonl.gz")
+    contracts.add_argument("--failures", default="data/contracts_32k/failures.jsonl.gz")
     contracts.add_argument("--no-progress", action="store_true")
 
     queries = subparsers.add_parser(
-        "queries", help="generate contract-grounded queries with a local model"
+        "queries", help="generate contract-grounded queries with DeepSeek"
     )
     _add_llm_arguments(queries)
-    queries.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
-    queries.add_argument("--contracts", default="data/contracts/contracts.jsonl.gz")
+    queries.add_argument("--sample", default="data/contracts_32k/sample_skills.jsonl.gz")
+    queries.add_argument("--contracts", default="data/contracts_32k/contracts.jsonl.gz")
     queries.add_argument("--output", default="data/synthetic/single_skill_v1/queries.jsonl.gz")
-    queries.add_argument("--failures", default="data/contracts/failures.jsonl.gz")
+    queries.add_argument("--failures", default="data/contracts_32k/failures.jsonl.gz")
     queries.add_argument("--no-progress", action="store_true")
 
     local = subparsers.add_parser(
@@ -100,13 +101,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_llm_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--backend", choices=("transformers", "vllm"), default="transformers")
-    parser.add_argument("--model", default="models/Qwen3-8B")
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--max-new-tokens", type=int, default=3072)
-    parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--max-model-len", type=int, default=16384)
-    parser.add_argument("--gpu-memory-utilization", type=float, default=0.9)
+    parser.add_argument("--concurrency", type=int, default=16)
+    parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--backoff", type=float, default=2.0)
@@ -149,87 +147,24 @@ def run_sample(args: argparse.Namespace) -> dict:
     }
 
 
-class LocalTransformersClient:
-    """Adapt an offline Qwen client to the preprocessing completion protocol."""
-
-    def __init__(
-        self,
-        model_name_or_path: str,
-        device: str = "cuda",
-        max_new_tokens: int = 3072,
-    ) -> None:
-        if max_new_tokens <= 0:
-            raise ValueError("max_new_tokens must be positive")
-        self._client = TransformersJsonClient(model_name_or_path, device=device)
-        self._max_new_tokens = max_new_tokens
-
-    @classmethod
-    def from_client(
-        cls,
-        client: TransformersJsonClient | VllmJsonClient,
-        *,
-        max_new_tokens: int,
-    ) -> "LocalTransformersClient":
-        if max_new_tokens <= 0:
-            raise ValueError("max_new_tokens must be positive")
-        instance = cls.__new__(cls)
-        instance._client = client
-        instance._max_new_tokens = max_new_tokens
-        return instance
-
-    def complete(
-        self,
-        *,
-        messages: list[dict[str, str]],
-        temperature: float,
-        **_: object,
-    ) -> str:
-        return self._client.complete(
-            messages,
-            temperature=temperature,
-            max_new_tokens=self._max_new_tokens,
-        )
-
-    def complete_many(
-        self,
-        *,
-        messages_batch: list[list[dict[str, str]]],
-        temperature: float,
-        **_: object,
-    ) -> list[str]:
-        return self._client.complete_many(
-            messages_batch,
-            temperature=temperature,
-            max_new_tokens=self._max_new_tokens,
-        )
-
-
-def build_llm_client(args: argparse.Namespace) -> object:
-    if args.backend == "vllm":
-        client = VllmJsonClient(
-            args.model,
-            max_model_len=args.max_model_len,
-            max_num_seqs=args.batch_size,
-            gpu_memory_utilization=args.gpu_memory_utilization,
-        )
-        return LocalTransformersClient.from_client(
-            client,
-            max_new_tokens=args.max_new_tokens,
-        )
-    return LocalTransformersClient(
-        args.model,
-        device=args.device,
-        max_new_tokens=args.max_new_tokens,
+def build_llm_client(args: argparse.Namespace) -> DeepSeekJsonClient:
+    load_dotenv(ROOT / ".env")
+    return DeepSeekJsonClient(
+        model=args.model,
+        concurrency=args.concurrency,
+        max_tokens=args.max_new_tokens,
+        timeout=args.timeout,
     )
 
 
 def _llm_config(args: argparse.Namespace) -> LLMConfig:
     return LLMConfig(
         model=args.model,
+        provider="deepseek",
         temperature=args.temperature,
         max_attempts=args.max_attempts,
         backoff_seconds=args.backoff,
-        batch_size=args.batch_size,
+        batch_size=args.concurrency,
         limit=args.limit,
     )
 

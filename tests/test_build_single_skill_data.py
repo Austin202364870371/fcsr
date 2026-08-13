@@ -5,17 +5,21 @@ from scripts.build_single_skill_data import build_llm_client, build_parser
 
 
 class BuildSingleSkillDataTests(unittest.TestCase):
-    def test_uses_local_qwen3_8b_by_default(self) -> None:
+    def test_uses_deepseek_v4_flash_with_concurrency_16_by_default(self) -> None:
         parser = build_parser()
 
         contracts = parser.parse_args(["contracts"])
         queries = parser.parse_args(["queries"])
-        self.assertEqual(contracts.model, "models/Qwen3-8B")
-        self.assertEqual(queries.model, "models/Qwen3-8B")
-        self.assertEqual(contracts.backend, "transformers")
-        self.assertEqual(queries.backend, "transformers")
-        self.assertEqual(contracts.batch_size, 8)
-        self.assertEqual(queries.batch_size, 8)
+        self.assertEqual(contracts.model, "deepseek-v4-flash")
+        self.assertEqual(queries.model, "deepseek-v4-flash")
+        self.assertEqual(contracts.concurrency, 16)
+        self.assertEqual(queries.concurrency, 16)
+        sample = parser.parse_args(["sample"])
+        self.assertEqual(sample.sample_size, 32000)
+        self.assertEqual(sample.output_dir, "data/contracts_32k")
+        self.assertEqual(
+            contracts.sample, "data/contracts_32k/sample_skills.jsonl.gz"
+        )
 
     def test_progress_can_be_disabled_for_supported_commands(self) -> None:
         parser = build_parser()
@@ -33,40 +37,31 @@ class BuildSingleSkillDataTests(unittest.TestCase):
             parser.parse_args(["local-negatives", "--no-progress"]).no_progress
         )
 
-    @patch("scripts.build_single_skill_data.VllmJsonClient")
-    def test_builds_offline_vllm_client_with_requested_capacity(self, factory: Mock) -> None:
-        backend = factory.return_value
-        backend.complete_many.return_value = ["{}"]
+    @patch("scripts.build_single_skill_data.load_dotenv")
+    @patch("scripts.build_single_skill_data.DeepSeekJsonClient")
+    def test_builds_deepseek_client_with_requested_concurrency(
+        self, factory: Mock, load_env: Mock
+    ) -> None:
         args = build_parser().parse_args(
             [
                 "contracts",
-                "--backend",
-                "vllm",
-                "--batch-size",
-                "32",
+                "--concurrency",
+                "16",
                 "--max-new-tokens",
                 "2048",
             ]
         )
 
         client = build_llm_client(args)
-        result = client.complete_many(
-            messages_batch=[[{"role": "user", "content": "extract"}]],
-            temperature=0.0,
-        )
 
+        load_env.assert_called_once()
         factory.assert_called_once_with(
-            "models/Qwen3-8B",
-            max_model_len=16384,
-            max_num_seqs=32,
-            gpu_memory_utilization=0.9,
+            model="deepseek-v4-flash",
+            concurrency=16,
+            max_tokens=2048,
+            timeout=180.0,
         )
-        backend.complete_many.assert_called_once_with(
-            [[{"role": "user", "content": "extract"}]],
-            temperature=0.0,
-            max_new_tokens=2048,
-        )
-        self.assertEqual(result, ["{}"])
+        self.assertIs(client, factory.return_value)
 
 if __name__ == "__main__":
     unittest.main()

@@ -66,7 +66,7 @@ class CompositionalGenerationTests(unittest.TestCase):
             [candidate],
             contracts,
             client,
-            CompositionalGenerationConfig(model="/models/Qwen3-8B", max_attempts=1),
+            CompositionalGenerationConfig(model="deepseek-v4-flash", max_attempts=1),
         )
 
         self.assertEqual(len(result.queries), 1)
@@ -75,7 +75,7 @@ class CompositionalGenerationTests(unittest.TestCase):
         self.assertEqual([step["skill_id"] for step in record["subtasks"]], ["build-api", "validate-api"])
         self.assertEqual(record["dependencies"], [{"from_step_id": "s1", "to_step_id": "s2"}])
         self.assertEqual(record["source_hashes"], ["hash-build", "hash-validate"])
-        self.assertEqual(record["generator"]["provider"], "local_transformers")
+        self.assertEqual(record["generator"]["provider"], "deepseek")
         self.assertEqual(len(result.failures), 0)
         self.assertEqual(len(client.calls), 1)
         self.assertIn("producer_to_consumer", client.calls[0]["messages"][1]["content"])
@@ -114,7 +114,7 @@ class CompositionalGenerationTests(unittest.TestCase):
                 contract("validate-api", "hash-validate", "Validate an OpenAPI specification."),
             ],
             client,
-            CompositionalGenerationConfig(model="/models/Qwen3-8B", max_attempts=1),
+            CompositionalGenerationConfig(model="deepseek-v4-flash", max_attempts=1),
         )
 
         self.assertEqual(result.queries, [])
@@ -147,7 +147,7 @@ class CompositionalGenerationTests(unittest.TestCase):
                   "dependencies": [{"from_step_id": "s1", "to_step_id": "s2"}]
                 }"""
             ),
-            CompositionalGenerationConfig(model="/models/Qwen3-8B"),
+            CompositionalGenerationConfig(model="deepseek-v4-flash"),
             progress_callback=progress.append,
         )
 
@@ -194,7 +194,7 @@ class CompositionalGenerationTests(unittest.TestCase):
                 contract("validate-api", "hash-validate", "Validate an OpenAPI specification."),
             ],
             client,
-            CompositionalGenerationConfig(model="/models/Qwen3-8B", max_attempts=2),
+            CompositionalGenerationConfig(model="deepseek-v4-flash", max_attempts=2),
         )
 
         self.assertEqual(len(result.queries), 1)

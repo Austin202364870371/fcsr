@@ -1,6 +1,8 @@
 import copy
 import json
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -89,23 +91,34 @@ class FakeClient:
         return json.dumps(response, ensure_ascii=False)
 
 
-class BatchFakeClient:
-    def __init__(self, response_batches: list[list[object]]) -> None:
-        self.response_batches = list(response_batches)
-        self.calls: list[dict[str, object]] = []
+class ConcurrentFakeClient:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+        self.calls: dict[str, int] = {}
 
-    def complete_many(self, **kwargs: object) -> list[str]:
-        self.calls.append(kwargs)
-        responses = self.response_batches.pop(0)
-        return [
-            response
-            if isinstance(response, str)
-            else json.dumps(response, ensure_ascii=False)
-            for response in responses
-        ]
-
-    def complete(self, **_: object) -> str:
-        raise AssertionError("batched extraction must not call complete")
+    def complete(self, **kwargs: object) -> str:
+        content = kwargs["messages"][-1]["content"]
+        skill_id = (
+            "design/affordances-mobile"
+            if "design/affordances-mobile" in content
+            else SKILL["skill_id"]
+        )
+        with self.lock:
+            attempt = self.calls.get(skill_id, 0) + 1
+            self.calls[skill_id] = attempt
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        time.sleep(0.02)
+        with self.lock:
+            self.active -= 1
+        response = semantic_contract(
+            "not present in the source"
+            if skill_id == SKILL["skill_id"] and attempt == 1
+            else None
+        )
+        return json.dumps(response, ensure_ascii=False)
 
 
 class LLMPreprocessingTests(unittest.TestCase):
@@ -118,7 +131,7 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.queries = self.root / "queries.jsonl"
         write_jsonl_atomic(self.sample, [SKILL])
         self.config = LLMConfig(
-            model="models/Qwen3-8B",
+            model="deepseek-v4-flash",
             max_attempts=2,
             backoff_seconds=0,
         )
@@ -192,7 +205,7 @@ class LLMPreprocessingTests(unittest.TestCase):
             ]
         )
         config = LLMConfig(
-            model="models/Qwen3-8B",
+            model="deepseek-v4-flash",
             max_attempts=2,
             backoff_seconds=2,
         )
@@ -332,12 +345,13 @@ class LLMPreprocessingTests(unittest.TestCase):
             set(schema["dependencies"][0]),
             {"name", "type", "required", "evidence_quotes"},
         )
-        self.assertIn("not default content", messages[0]["content"])
+        self.assertIn("Accuracy is more important than field coverage", messages[0]["content"])
         self.assertIn(
-            "Use an empty array only when the source contains no exact evidence",
+            "never infer an exclusion from a positive capability",
             messages[0]["content"],
         )
-        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_003")
+        self.assertIn("Quality criteria require an explicit check", messages[0]["content"])
+        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_004")
 
     def test_query_prompt_requires_single_skill_grounding(self) -> None:
         client = FakeClient([semantic_contract()])
@@ -379,18 +393,12 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertEqual(client.calls, 2)
         self.assertEqual(load_jsonl(self.contracts)[0]["extraction"]["attempts"], 2)
 
-    def test_contract_batch_retries_only_rejected_items(self) -> None:
+    def test_contract_workers_process_one_skill_per_request_and_retry_only_rejected(self) -> None:
         second_skill = {**SKILL, "skill_id": "design/affordances-mobile"}
         write_jsonl_atomic(self.sample, [SKILL, second_skill])
-        invalid = semantic_contract("not present in the source")
-        client = BatchFakeClient(
-            [
-                [invalid, semantic_contract()],
-                [semantic_contract()],
-            ]
-        )
+        client = ConcurrentFakeClient()
         config = LLMConfig(
-            model="models/Qwen3-8B",
+            model="deepseek-v4-flash",
             max_attempts=2,
             backoff_seconds=0,
             batch_size=2,
@@ -405,7 +413,9 @@ class LLMPreprocessingTests(unittest.TestCase):
         )
 
         self.assertEqual(summary.succeeded, 2)
-        self.assertEqual([len(call["messages_batch"]) for call in client.calls], [2, 1])
+        self.assertEqual(client.max_active, 2)
+        self.assertEqual(client.calls[SKILL["skill_id"]], 2)
+        self.assertEqual(client.calls[second_skill["skill_id"]], 1)
         contracts = {item["skill_id"]: item for item in load_jsonl(self.contracts)}
         self.assertEqual(contracts[SKILL["skill_id"]]["extraction"]["attempts"], 2)
         self.assertEqual(contracts[second_skill["skill_id"]]["extraction"]["attempts"], 1)
@@ -492,8 +502,6 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertEqual(summary.succeeded, 1)
         self.assertEqual(summary.skipped, 1)
         self.assertEqual(len(updates), 2)
-        self.assertEqual(updates[0].succeeded, 1)
-        self.assertEqual(updates[0].skipped, 0)
         self.assertEqual(updates[1], summary)
 
     def test_query_name_leak_is_retried(self) -> None:

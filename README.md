@@ -54,25 +54,32 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+# Edit .env and set DEEPSEEK_API_KEY.
 $env:PYTHONPATH = "src"
 python -B -m unittest discover -s tests -v
 ```
 
 On CUDA hosts, install the PyTorch build matching the host CUDA environment before installing `requirements.txt` when necessary. See [PyTorch installation](https://pytorch.org/get-started/locally/).
 
-Contract extraction and single-skill query generation run exclusively through the
-offline Transformers model at `models/Qwen3-8B`. They require no API key or network
-access.
+Contract extraction and LLM-authored queries use `deepseek-v4-flash` with thinking
+disabled and JSON Output enabled. Copy `.env.example` to `.env`, set
+`DEEPSEEK_API_KEY`, and never commit that file. Contract extraction sends exactly one
+Skill per request and maintains a bounded pool of 16 concurrent requests.
 
 ## Data Pipeline
 
 ### 1. Build Single-Skill Data
 
 ```powershell
-# Benchmark-safe Contract sample, then offline evidence-grounded Contracts.
-python -B scripts/build_single_skill_data.py sample --overwrite
+# Benchmark-safe 32k Contract sample, then evidence-grounded Contracts.
+python -B scripts/build_single_skill_data.py sample `
+  --sample-size 32000 --output-dir data/contracts_32k --overwrite
 python -B scripts/build_single_skill_data.py contracts `
-  --model models/Qwen3-8B --device cuda
+  --model deepseek-v4-flash --concurrency 16 `
+  --sample data/contracts_32k/sample_skills.jsonl.gz `
+  --output data/contracts_32k/contracts.jsonl.gz `
+  --failures data/contracts_32k/failures.jsonl.gz
 
 # Contract-grounded queries, local negatives, then GPU semantic negatives.
 python -B scripts/build_single_skill_data.py queries
@@ -90,9 +97,9 @@ Candidate construction does not call an LLM. A candidate is retained only when v
 ```powershell
 python -B scripts/build_multiskill_candidates.py
 
-# Qwen3-8B or another local instruction model writes tasks only for validated candidates.
+# DeepSeek writes tasks only for validated candidates.
 python -B scripts/generate_multiskill_queries.py `
-  --model models/Qwen3-8B --max-attempts 3 --progress
+  --model deepseek-v4-flash --max-attempts 3 --progress
 ```
 
 The generator validates JSON structure, exact positive Skill IDs and order, source hashes, subtask coverage, and the dependency DAG. It writes `queries.jsonl.gz`, `failures.jsonl.gz`, and `review_queue.jsonl.gz` under `data/synthetic/multiskill_v1/`.
@@ -169,26 +176,32 @@ The renderer writes:
 
 Bold values in the final table identify numerical maxima only, not statistical significance.
 
-## Slurm Query Generation
+## Slurm API Generation
 
-The offline Contract pilot is
-[jobs/extract_contracts_qwen3_8b.sbatch](jobs/extract_contracts_qwen3_8b.sbatch).
-It requests one compute-node GPU, runs with offline Hugging Face settings, writes to
-`data/contracts_local_qwen3_8b/`, and processes 32 Skills by default so the results can
-be audited before a full run:
+API generation is a CPU task and must still run through Slurm. The pilot job creates
+the deterministic 32k stratified sample when needed, but extracts only the first 32
+Skills into an isolated output directory:
 
 ```bash
-sbatch jobs/extract_contracts_qwen3_8b.sbatch
+sbatch jobs/extract_contracts_deepseek_pilot.sbatch
 ```
 
-Set `LIMIT` to an empty value only after the pilot output and throughput have been
-checked. Existing `(skill_id, source_hash)` records are skipped, so resubmitting the
-same output path resumes safely.
-
-The Qwen3-8B pilot template is [jobs/generate_multiskill_qwen3_8b.sbatch](jobs/generate_multiskill_qwen3_8b.sbatch). Submit it after setting the project path and checking the requested QoS/GPU against local cluster rules:
+After auditing the pilot, submit the separate formal job for all 32,000 Skills:
 
 ```bash
-sbatch jobs/generate_multiskill_qwen3_8b.sbatch
+sbatch jobs/extract_contracts_deepseek_32k.sbatch
+```
+
+Each request contains one Skill; `CONCURRENCY=16` controls only how many independent
+requests are in flight. Completed records are validated and appended individually.
+Existing `(skill_id, source_hash)` records are skipped, so resubmitting the formal job
+resumes safely. The formal output is `data/contracts_32k/contracts.jsonl.gz`.
+
+The multi-Skill API generation template is
+[jobs/generate_multiskill_deepseek.sbatch](jobs/generate_multiskill_deepseek.sbatch):
+
+```bash
+sbatch jobs/generate_multiskill_deepseek.sbatch
 ```
 
 ## Migrating Existing Local or Server Data

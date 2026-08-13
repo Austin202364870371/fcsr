@@ -10,7 +10,7 @@
 
 ## 当前资产
 
-- 从 Easy pool 以类别和语言分层抽样 8,000 条，并排除评测 GT / relevance Skill。
+- 新一轮数据从 Easy pool 以类别和语言分层抽样 32,000 条，并排除评测 GT / relevance Skill；旧版 8k 数据继续保留用于对照。
 - Contract V2 要求每个字段指向原文 evidence，本地校验证据偏移、`source_hash` 与 schema。
 - 已得到 7,995 条有效 Contract 和 7,342 条单 Skill query；版本见 `data/contracts/manifest.json`、`data/synthetic/single_v1/manifest.json`。
 - 已实现本地/语义负例、Qwen + LoRA Bi-Encoder、Listwise Reranker，以及 Easy / Hard pool 计分。
@@ -19,7 +19,7 @@
 
 ## 多 Skill 扩展
 
-`data/synthetic/multiskill_v1/` 已保存 497 个有向 pair 与 51 个 triple。候选只在有效 Contract、有效单 Skill query、非 benchmark、artifact 输出到必需输入交接和操作互补同时成立时保留；22,635 个拒绝项保留原因。本地 Qwen 生成器只可把已验证候选写成任务、子任务和依赖，并以 JSON、Skill ID 顺序、source hash 与 DAG 校验拒绝越界输出。
+`data/synthetic/multiskill_v1/` 已保存 497 个有向 pair 与 51 个 triple。候选只在有效 Contract、有效单 Skill query、非 benchmark、artifact 输出到必需输入交接和操作互补同时成立时保留；22,635 个拒绝项保留原因。LLM 生成器只可把已验证候选写成任务、子任务和依赖，并以 JSON、Skill ID 顺序、source hash 与 DAG 校验拒绝越界输出。新的 Contract 和查询生成统一使用关闭思考模式的 `deepseek-v4-flash`；Contract 抽取保持一条 Skill 一个请求，并发上限为 16。
 
 已在服务器以本地 Qwen3-8B 完成一次全量生成：548 个候选中 541 条通过严格校验，7 条失败，448 条进入复核队列。训练阶段采用 `data/training/multiskill3x/`：保留 7,342 条单 Skill 数据，并按原始组合任务组做 3 倍确定性采样。每条组合任务会分别展开到其每个正例 Skill 的 Bi-Encoder 样本，同时在同一条记录中保留完整 `positive_skill_ids`；所有正例均从负例候选中排除。Reranker 保持一条组合任务一个多标签 group。
 

@@ -54,24 +54,32 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+# 编辑 .env 并填写 DEEPSEEK_API_KEY。
 $env:PYTHONPATH = "src"
 python -B -m unittest discover -s tests -v
 ```
 
 在 CUDA 机器上，必要时先根据 [PyTorch 安装说明](https://pytorch.org/get-started/locally/) 安装与宿主环境匹配的 PyTorch，再安装 `requirements.txt`。
 
-Contract 抽取和单 Skill 查询生成只使用本地 Transformers 模型
-`models/Qwen3-8B`，不需要 API 密钥，也不会访问网络。
+Contract 抽取和 LLM 查询生成使用 `deepseek-v4-flash`，关闭思考模式并启用
+JSON Output。复制 `.env.example` 为 `.env`，填写 `DEEPSEEK_API_KEY`，不要提交
+该文件。Contract 抽取严格保持“一条 Skill 对应一个 API 请求”，同时最多运行
+16 个独立请求。
 
 ## 数据构建
 
 ### 1. 单 Skill 数据
 
 ```powershell
-# 先构建 benchmark-safe 的 Contract 样本，再抽取带证据的 Contract。
-python -B scripts/build_single_skill_data.py sample --overwrite
+# 构建 benchmark-safe 的 32k Contract 样本，再抽取带证据的 Contract。
+python -B scripts/build_single_skill_data.py sample `
+  --sample-size 32000 --output-dir data/contracts_32k --overwrite
 python -B scripts/build_single_skill_data.py contracts `
-  --model models/Qwen3-8B --device cuda
+  --model deepseek-v4-flash --concurrency 16 `
+  --sample data/contracts_32k/sample_skills.jsonl.gz `
+  --output data/contracts_32k/contracts.jsonl.gz `
+  --failures data/contracts_32k/failures.jsonl.gz
 
 # 生成查询、局部负例，再在 GPU 上挖掘语义负例。
 python -B scripts/build_single_skill_data.py queries
@@ -89,9 +97,9 @@ python -B scripts/build_single_skill_data.py semantic-negatives `
 ```powershell
 python -B scripts/build_multiskill_candidates.py
 
-# Qwen3-8B 或其他本地指令模型只为已验证候选写自然语言任务。
+# DeepSeek 只为已验证候选写自然语言任务。
 python -B scripts/generate_multiskill_queries.py `
-  --model models/Qwen3-8B --max-attempts 3 --progress
+  --model deepseek-v4-flash --max-attempts 3 --progress
 ```
 
 生成器会校验 JSON 结构、正例 Skill ID 及顺序、source hash、子任务覆盖和依赖 DAG。结果写入 `data/synthetic/multiskill_v1/` 下的 `queries.jsonl.gz`、`failures.jsonl.gz` 与 `review_queue.jsonl.gz`。
@@ -168,24 +176,31 @@ python -B scripts/render_evaluation_tables.py
 
 最终表中的加粗仅表示数值最大，不表示统计显著性。
 
-## Slurm 查询生成
+## Slurm API 生成
 
-离线 Contract 抽取 pilot 模板位于
-[jobs/extract_contracts_qwen3_8b.sbatch](jobs/extract_contracts_qwen3_8b.sbatch)。它只申请
-一张计算节点 GPU，启用 Hugging Face 离线模式，默认抽取 32 条并写入独立的
-`data/contracts_local_qwen3_8b/`，便于正式扩容前检查质量和吞吐：
+API 生成是纯 CPU 任务，但仍须通过 Slurm 运行。Pilot 作业会在需要时创建确定性的
+32k 分层样本，但只抽取前 32 条并写入独立目录：
 
 ```bash
-sbatch jobs/extract_contracts_qwen3_8b.sbatch
+sbatch jobs/extract_contracts_deepseek_pilot.sbatch
 ```
 
-确认 pilot 后再把 `LIMIT` 设为空运行完整样本。同一输出路径会按照
-`(skill_id, source_hash)` 自动跳过已完成记录，任务中断后可以安全续跑。
-
-Qwen3-8B pilot 模板位于 [jobs/generate_multiskill_qwen3_8b.sbatch](jobs/generate_multiskill_qwen3_8b.sbatch)。根据实验室规则确认项目路径、QoS 和 GPU 后提交：
+审计 pilot 后，再提交独立的 32k 正式作业：
 
 ```bash
-sbatch jobs/generate_multiskill_qwen3_8b.sbatch
+sbatch jobs/extract_contracts_deepseek_32k.sbatch
+```
+
+每个请求只包含一条 Skill；`CONCURRENCY=16` 只控制同时在途的独立请求数。
+每条完成后会单独校验并追加保存。正式输出按 `(skill_id, source_hash)` 跳过
+已完成记录，因此中断后可以安全续跑；输出位于
+`data/contracts_32k/contracts.jsonl.gz`。
+
+多 Skill API 生成模板位于
+[jobs/generate_multiskill_deepseek.sbatch](jobs/generate_multiskill_deepseek.sbatch)：
+
+```bash
+sbatch jobs/generate_multiskill_deepseek.sbatch
 ```
 
 ## 迁移已有本地或服务器数据

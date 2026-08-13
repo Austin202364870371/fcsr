@@ -2,6 +2,8 @@
 numpy>=1.24,<3
 PyYAML>=6.0,<7
 tqdm>=4.66,<5
+openai>=1.0,<3
+python-dotenv>=1.0,<2
 
 # Qwen training and model download.
 # For CUDA, install the PyTorch build matching the host image first when necessary:
