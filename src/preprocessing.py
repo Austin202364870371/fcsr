@@ -45,6 +45,52 @@ _CONTRACT_FIELD_LIMITS = {
     "exclusions": 8,
     "quality_criteria": 8,
 }
+_CONTRACT_TOTAL_ITEM_LIMIT = 32
+_CONTRACT_BASE_QUOTAS = {
+    "operations": 8,
+    "inputs": 4,
+    "outputs": 5,
+    "preconditions": 2,
+    "constraints": 5,
+    "dependencies": 4,
+    "exclusions": 2,
+    "quality_criteria": 2,
+}
+_CONTRACT_FILL_PRIORITY = (
+    "operations",
+    "outputs",
+    "constraints",
+    "quality_criteria",
+    "inputs",
+    "dependencies",
+    "preconditions",
+    "exclusions",
+)
+_TRIGGER_EVIDENCE_PATTERN = re.compile(
+    r"\b(?:this\s+skill\s+)?(?:should\s+be\s+used|is\s+used|activates?|triggers?)\s+when\b"
+    r"|\buse\s+(?:this\s+)?skill\s+when\b"
+    r"|\bwhen\s+(?:the\s+)?user\s+(?:asks?|requests?|mentions?)\b"
+    r"|\bcuando\s+(?:el\s+)?usuario\s+(?:pregunta|pide|solicita|menciona)\b"
+    r"|\u5f53\u7528\u6237.*(?:\u8be2\u95ee|\u8981\u6c42|\u8bf7\u6c42|\u63d0\u5230)"
+    r"|\u30e6\u30fc\u30b6\u30fc\u304c.*(?:\u5834\u5408|\u3068\u304d)"
+    r"|\uc0ac\uc6a9\uc790\uac00.*(?:\uc694\uccad|\uc9c8\ubb38|\uc5b8\uae09).*(?:\ud560\s*\ub54c|\ud558\uba74)",
+    re.IGNORECASE,
+)
+_EXPLICIT_EXCLUSION_PATTERN = re.compile(
+    r"\b(?:out[- ]of[- ]scope|non[- ]goals?|excluded?|unsupported|not\s+supported|"
+    r"does\s+not\s+(?:cover|include|provide|handle|support)|do\s+not\s+(?:cover|include|support)|"
+    r"must\s+not|never|cannot|can't|without)\b"
+    r"|\u5bf9\u8c61\u5916|\u5bfe\u8c61\u5916|\u4e0d\u652f\u6301|\u4e0d\u5305\u542b|\u4e0d\u63d0\u4f9b|\u4e0d\u8d1f\u8d23|\u7981\u6b62|\u4e0d\u5141\u8bb8|\u4e0d\u80fd|\u4e0d\u4f1a"
+    r"|\uc9c0\uc6d0\ud558\uc9c0|\ud3ec\ud568\ud558\uc9c0|\uc81c\uc678|\uae08\uc9c0"
+    r"|\b(?:fuera\s+de\s+alcance|no\s+(?:admite|incluye|proporciona))\b",
+    re.IGNORECASE,
+)
+_EXCLUSION_HEADING_PATTERN = re.compile(
+    r"\b(?:out[- ]of[- ]scope|non[- ]goals?|exclusions?|unsupported|not\s+supported)\b"
+    r"|\u5bf9\u8c61\u5916|\u5bfe\u8c61\u5916|\u975e\u76ee\u6807|\u8303\u56f4\u5916|\u4e0d\u652f\u6301|\uc81c\uc678|\uc9c0\uc6d0\ud558\uc9c0"
+    r"|\bfuera\s+de\s+alcance\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -268,7 +314,7 @@ class LLMConfig:
     max_attempts: int = 3
     backoff_seconds: float = 2.0
     batch_size: int = 1
-    contract_prompt_version: str = "contract_v2_prompt_005"
+    contract_prompt_version: str = "contract_v2_prompt_006"
     query_prompt_version: str = "contract_query_prompt_005"
     limit: int | None = None
 
@@ -408,8 +454,10 @@ def build_contract_messages(
                 "response shape. Extract atomic facts that are explicitly supported by the "
                 "source. Classify each fact into its most specific field and avoid duplicating "
                 "the same fact across fields. Order every array from the most central and useful "
-                "fact to the least important. Return at most 12 operations, 12 constraints, 10 "
-                "outputs, and 8 items in each other array. "
+                "fact to the least important. Field limits are maxima, never targets: prefer a "
+                "short complete contract, usually 8-20 total collection items and never more "
+                "than 32. Return at most 12 operations, 12 constraints, 10 outputs, and 8 items "
+                "in each other array. "
                 "Operations are actions the Skill performs, not headings or broad descriptions. "
                 "Inputs are artifacts consumed; outputs are artifacts produced. A phrase that "
                 "only says when a user should invoke this Skill is neither an input nor a "
@@ -420,7 +468,10 @@ def build_contract_messages(
                 "or out-of-scope statement; never infer an exclusion from a positive capability, "
                 "recommendation, or implementation detail. Put implementation prohibitions in "
                 "constraints and overall unsupported or out-of-scope behavior in exclusions; "
-                "never emit the same fact in both. Quality criteria require an explicit "
+                "never emit the same fact in both. An exclusion's cited quote must itself contain "
+                "explicit negative scope language, or be a list item directly under an explicit "
+                "Out of Scope, Exclusions, Unsupported, or Non-Goals heading. Quality criteria "
+                "require an explicit "
                 "check, acceptance condition, threshold, or observable success condition. Every "
                 "retained item must cite at least one exact contiguous quote copied from name, "
                 "description, or body. Copy quotes without reconstructing code or removing "
@@ -942,6 +993,15 @@ def _materialize_contract(
             raise ValueError(f"{field} must be a list")
         semantic_collections[field] = items
 
+    for field in ("inputs", "preconditions"):
+        filtered_items: list[dict[str, Any]] = []
+        for index, item in enumerate(semantic_collections[field]):
+            if _semantic_item_has_trigger_evidence(item):
+                warnings.append(f"dropped_trigger_condition:{field}[{index}]")
+            else:
+                filtered_items.append(item)
+        semantic_collections[field] = filtered_items
+
     constraint_evidence = {
         key
         for item in semantic_collections["constraints"]
@@ -953,17 +1013,29 @@ def _materialize_contract(
             warnings.append(
                 f"dropped_cross_field_duplicate:exclusions[{index}]:constraints"
             )
+        elif not _has_explicit_exclusion_evidence(skill, item, index):
+            warnings.append(f"dropped_implicit_exclusion:exclusions[{index}]")
         else:
             filtered_exclusions.append(item)
     semantic_collections["exclusions"] = filtered_exclusions
 
-    converted: dict[str, list[dict[str, Any]]] = {}
     for field in collection_fields:
         items = semantic_collections[field]
         limit = _CONTRACT_FIELD_LIMITS[field]
         if len(items) > limit:
             warnings.append(f"field_item_limit_applied:{field}:{len(items)}:{limit}")
-            items = items[:limit]
+            semantic_collections[field] = items[:limit]
+    total_before_limit = sum(len(items) for items in semantic_collections.values())
+    if total_before_limit > _CONTRACT_TOTAL_ITEM_LIMIT:
+        semantic_collections = _apply_total_contract_item_limit(semantic_collections)
+        warnings.append(
+            f"total_item_limit_applied:{total_before_limit}:"
+            f"{_CONTRACT_TOTAL_ITEM_LIMIT}"
+        )
+
+    converted: dict[str, list[dict[str, Any]]] = {}
+    for field in collection_fields:
+        items = semantic_collections[field]
         converted[field] = []
         for index, item in enumerate(items):
             context = f"{field}[{index}]"
@@ -1014,6 +1086,105 @@ def _semantic_evidence_keys(item: Any) -> set[tuple[str, str]]:
         if isinstance(source_field, str) and isinstance(quote, str) and quote.strip():
             keys.add((source_field, " ".join(quote.split()).casefold()))
     return keys
+
+
+def _semantic_item_has_trigger_evidence(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    quotes = item.get("evidence_quotes")
+    if not isinstance(quotes, list):
+        return False
+    return any(
+        isinstance(citation, dict)
+        and isinstance(citation.get("quote"), str)
+        and _TRIGGER_EVIDENCE_PATTERN.search(citation["quote"])
+        for citation in quotes
+    )
+
+
+def _has_explicit_exclusion_evidence(
+    skill: dict[str, Any], item: Any, index: int
+) -> bool:
+    if not isinstance(item, dict):
+        return False
+    quotes = item.get("evidence_quotes")
+    if not isinstance(quotes, list):
+        return False
+    for citation_index, citation in enumerate(quotes):
+        if not isinstance(citation, dict):
+            continue
+        source_field = citation.get("source_field")
+        quote = citation.get("quote")
+        if not isinstance(quote, str) or not quote:
+            continue
+        if _EXPLICIT_EXCLUSION_PATTERN.search(quote):
+            return True
+        if source_field not in _EVIDENCE_SOURCE_FIELDS:
+            continue
+        try:
+            aligned_field, aligned_quote, start, _ = _align_evidence_quote(
+                skill,
+                source_field,
+                quote,
+                f"exclusions[{index}].filter[{citation_index}]",
+            )
+        except ValueError:
+            continue
+        if _EXPLICIT_EXCLUSION_PATTERN.search(aligned_quote):
+            return True
+        source_text = skill.get(aligned_field, "")
+        if isinstance(source_text, str) and _has_nearby_exclusion_heading(
+            source_text, start
+        ):
+            return True
+    return False
+
+
+def _has_nearby_exclusion_heading(source_text: str, item_start: int) -> bool:
+    preceding_lines = source_text[:item_start].splitlines()[-20:]
+    nonempty_seen = 0
+    for line in reversed(preceding_lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        nonempty_seen += 1
+        heading_like = (
+            stripped.startswith("#")
+            or (stripped.startswith("**") and stripped.endswith("**"))
+            or stripped.endswith(":")
+        )
+        if heading_like:
+            return bool(_EXCLUSION_HEADING_PATTERN.search(stripped))
+        if nonempty_seen <= 3 and len(stripped) <= 80:
+            if _EXCLUSION_HEADING_PATTERN.search(stripped):
+                return True
+    return False
+
+
+def _apply_total_contract_item_limit(
+    collections: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    allocations = {
+        field: min(len(items), _CONTRACT_BASE_QUOTAS[field])
+        for field, items in collections.items()
+    }
+    remaining = _CONTRACT_TOTAL_ITEM_LIMIT - sum(allocations.values())
+    while remaining > 0:
+        added = False
+        for field in _CONTRACT_FILL_PRIORITY:
+            if allocations[field] >= len(collections[field]):
+                continue
+            allocations[field] += 1
+            remaining -= 1
+            added = True
+            if remaining == 0:
+                break
+        if not added:
+            break
+    return {
+        field: items[: allocations[field]]
+        for field, items in collections.items()
+    }
 
 def _parse_json_object(response: Any) -> dict[str, Any]:
     if not isinstance(response, str):

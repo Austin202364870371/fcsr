@@ -361,9 +361,14 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertIn("at most 12 operations", messages[0]["content"])
         self.assertIn("neither an input nor a precondition", messages[0]["content"])
         self.assertIn("Never copy an entire fenced code block", messages[0]["content"])
-        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_005")
+        self.assertIn("Field limits are maxima, never targets", messages[0]["content"])
+        self.assertIn("never more than 32", messages[0]["content"])
+        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_006")
 
     def test_contract_materializer_caps_fields_and_deduplicates_exclusions(self) -> None:
+        explicit_skill = copy.deepcopy(SKILL)
+        explicit_skill["body"] += "\nThis skill does not provide animation."
+        write_jsonl_atomic(self.sample, [explicit_skill])
         semantic = semantic_contract()
         operation = semantic["operations"][0]
         semantic["operations"] = [
@@ -389,7 +394,10 @@ class LLMPreprocessingTests(unittest.TestCase):
             {
                 "statement": "separate exclusion",
                 "evidence_quotes": [
-                    {"source_field": "description", "quote": SKILL["description"]}
+                    {
+                        "source_field": "body",
+                        "quote": "This skill does not provide animation.",
+                    }
                 ],
             },
         ]
@@ -412,6 +420,157 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertIn("field_item_limit_applied:constraints:13:12", warnings)
         self.assertIn(
             "dropped_cross_field_duplicate:exclusions[0]:constraints", warnings
+        )
+
+    def test_contract_materializer_drops_trigger_conditions_and_implicit_exclusions(self) -> None:
+        trigger = "This skill should be used when the user asks for interface guidance."
+        trigger_skill = copy.deepcopy(SKILL)
+        trigger_skill["description"] = trigger
+        write_jsonl_atomic(self.sample, [trigger_skill])
+        semantic = semantic_contract(trigger)
+        semantic["inputs"] = [
+            {
+                "artifact": "user request",
+                "format": None,
+                "required": True,
+                "constraints": [],
+                "evidence_quotes": [
+                    {"source_field": "description", "quote": trigger}
+                ],
+            }
+        ]
+        semantic["preconditions"] = [
+            {
+                "statement": "The user must ask for interface guidance.",
+                "evidence_quotes": [
+                    {"source_field": "description", "quote": trigger}
+                ],
+            }
+        ]
+        semantic["exclusions"] = [
+            {
+                "statement": "The skill does not create backend services.",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": SKILL["body"]}
+                ],
+            }
+        ]
+
+        summary = extract_contracts(
+            self.sample,
+            self.contracts,
+            self.failures,
+            FakeClient([semantic]),
+            self.config,
+        )
+
+        self.assertEqual(summary.succeeded, 1)
+        contract = load_jsonl(self.contracts)[0]
+        self.assertEqual(contract["inputs"], [])
+        self.assertEqual(contract["preconditions"], [])
+        self.assertEqual(contract["exclusions"], [])
+        warnings = contract["extraction"]["warnings"]
+        self.assertIn("dropped_trigger_condition:inputs[0]", warnings)
+        self.assertIn("dropped_trigger_condition:preconditions[0]", warnings)
+        self.assertIn("dropped_implicit_exclusion:exclusions[0]", warnings)
+
+    def test_contract_materializer_retains_list_item_under_exclusion_heading(self) -> None:
+        scoped_skill = copy.deepcopy(SKILL)
+        scoped_skill["body"] += "\n## Out of Scope\n- Voice cloning\n- Transcription"
+        write_jsonl_atomic(self.sample, [scoped_skill])
+        semantic = semantic_contract()
+        semantic["exclusions"] = [
+            {
+                "statement": "Voice cloning is out of scope.",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": "Voice cloning"}
+                ],
+            },
+            {
+                "statement": "Transcription is out of scope.",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": "Transcription"}
+                ],
+            },
+        ]
+
+        summary = extract_contracts(
+            self.sample,
+            self.contracts,
+            self.failures,
+            FakeClient([semantic]),
+            self.config,
+        )
+
+        self.assertEqual(summary.succeeded, 1)
+        contract = load_jsonl(self.contracts)[0]
+        self.assertEqual(len(contract["exclusions"]), 2)
+
+    def test_contract_materializer_caps_total_collection_items_at_32(self) -> None:
+        semantic = semantic_contract()
+        templates = {
+            "operations": semantic["operations"][0],
+            "inputs": {
+                "artifact": "input",
+                "format": None,
+                "required": True,
+                "constraints": [],
+                "evidence_quotes": [{"source_field": "body", "quote": SKILL["body"]}],
+            },
+            "outputs": {
+                "artifact": "output",
+                "format": None,
+                "required": True,
+                "constraints": [],
+                "evidence_quotes": [{"source_field": "body", "quote": SKILL["body"]}],
+            },
+            "preconditions": {
+                "statement": "precondition",
+                "evidence_quotes": [{"source_field": "body", "quote": SKILL["body"]}],
+            },
+            "constraints": {
+                "statement": "constraint",
+                "evidence_quotes": [{"source_field": "body", "quote": SKILL["body"]}],
+            },
+            "dependencies": {
+                "name": "dependency",
+                "type": "software",
+                "required": True,
+                "evidence_quotes": [{"source_field": "body", "quote": SKILL["body"]}],
+            },
+            "quality_criteria": {
+                "statement": "criterion",
+                "evidence_quotes": [{"source_field": "body", "quote": SKILL["body"]}],
+            },
+        }
+        requested = {
+            "operations": 12,
+            "inputs": 8,
+            "outputs": 10,
+            "preconditions": 8,
+            "constraints": 12,
+            "dependencies": 8,
+            "quality_criteria": 8,
+        }
+        for field, count in requested.items():
+            semantic[field] = [copy.deepcopy(templates[field]) for _ in range(count)]
+        semantic["exclusions"] = []
+
+        summary = extract_contracts(
+            self.sample,
+            self.contracts,
+            self.failures,
+            FakeClient([semantic]),
+            self.config,
+        )
+
+        self.assertEqual(summary.succeeded, 1)
+        contract = load_jsonl(self.contracts)[0]
+        total = sum(len(contract[field]) for field in requested) + len(contract["exclusions"])
+        self.assertEqual(total, 32)
+        self.assertIn(
+            "total_item_limit_applied:66:32",
+            contract["extraction"]["warnings"],
         )
 
     def test_query_prompt_requires_single_skill_grounding(self) -> None:
