@@ -15,9 +15,9 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 MODEL_PATH="${MODEL_PATH:-$PROJECT_DIR/models/Qwen3-8B}"
 SAMPLE_PATH="${SAMPLE_PATH:-$PROJECT_DIR/data/contracts/sample_skills.jsonl.gz}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_local_qwen3_8b_prompt003_batch8}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_local_qwen3_8b_prompt003_vllm}"
 LIMIT="${LIMIT:-32}"
-BATCH_SIZE="${BATCH_SIZE:-8}"
+BATCH_SIZE="${BATCH_SIZE:-32}"
 
 cd "$PROJECT_DIR"
 source "$(conda info --base)/etc/profile.d/conda.sh"
@@ -33,6 +33,7 @@ mkdir -p "$PROJECT_DIR/logs" "$OUTPUT_DIR"
 
 arguments=(
   contracts
+  --backend vllm
   --model "$MODEL_PATH"
   --device cuda
   --sample "$SAMPLE_PATH"
@@ -40,6 +41,8 @@ arguments=(
   --failures "$OUTPUT_DIR/failures.jsonl.gz"
   --max-new-tokens 3072
   --batch-size "$BATCH_SIZE"
+  --max-model-len 16384
+  --gpu-memory-utilization 0.9
   --max-attempts 3
   --backoff 0
 )

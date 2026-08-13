@@ -176,6 +176,97 @@ class TransformersJsonClient:
         )
 
 
+class VllmJsonClient:
+    """Offline vLLM client with continuous batching on one allocated GPU."""
+
+    def __init__(
+        self,
+        model_name_or_path: str,
+        *,
+        max_model_len: int = 16384,
+        max_num_seqs: int = 32,
+        gpu_memory_utilization: float = 0.9,
+    ) -> None:
+        try:
+            from transformers import AutoTokenizer
+            from vllm import LLM, SamplingParams
+        except ImportError as exc:
+            raise RuntimeError(
+                "vLLM generation requires requirements-vllm.txt on the Linux server"
+            ) from exc
+        if max_model_len <= 0 or max_num_seqs <= 0:
+            raise ValueError("vLLM length and concurrency limits must be positive")
+        if not 0 < gpu_memory_utilization < 1:
+            raise ValueError("gpu_memory_utilization must be between 0 and 1")
+        self._sampling_params_class = SamplingParams
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            model_name_or_path,
+            local_files_only=True,
+        )
+        self._engine = LLM(
+            model=model_name_or_path,
+            tokenizer=model_name_or_path,
+            dtype="bfloat16",
+            max_model_len=max_model_len,
+            max_num_seqs=max_num_seqs,
+            gpu_memory_utilization=gpu_memory_utilization,
+            enable_prefix_caching=True,
+            trust_remote_code=False,
+        )
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float,
+        max_new_tokens: int,
+    ) -> str:
+        return self.complete_many(
+            [messages],
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+        )[0]
+
+    def complete_many(
+        self,
+        messages_batch: list[list[dict[str, str]]],
+        *,
+        temperature: float,
+        max_new_tokens: int,
+    ) -> list[str]:
+        if not messages_batch:
+            return []
+        prompts = [self._format_prompt(messages) for messages in messages_batch]
+        sampling_params = self._sampling_params_class(
+            temperature=temperature,
+            top_p=0.95 if temperature > 0 else 1.0,
+            max_tokens=max_new_tokens,
+        )
+        outputs = self._engine.generate(
+            prompts,
+            sampling_params=sampling_params,
+            use_tqdm=True,
+        )
+        if len(outputs) != len(prompts):
+            raise RuntimeError("vLLM returned the wrong number of responses")
+        return [output.outputs[0].text for output in outputs]
+
+    def _format_prompt(self, messages: list[dict[str, str]]) -> str:
+        try:
+            return self._tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except TypeError:
+            return self._tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+
+
 def generate_compositional_queries(
     candidates: Iterable[dict[str, Any]],
     contracts: Iterable[dict[str, Any]],

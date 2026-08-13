@@ -34,7 +34,7 @@ from preprocessing import (
     sha256_file,
     stratified_sample,
 )
-from multiskill_generation import TransformersJsonClient
+from multiskill_generation import TransformersJsonClient, VllmJsonClient
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -100,10 +100,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_llm_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--backend", choices=("transformers", "vllm"), default="transformers")
     parser.add_argument("--model", default="models/Qwen3-8B")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--max-new-tokens", type=int, default=3072)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--max-model-len", type=int, default=16384)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.9)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--backoff", type=float, default=2.0)
@@ -147,7 +150,7 @@ def run_sample(args: argparse.Namespace) -> dict:
 
 
 class LocalTransformersClient:
-    """Adapt the offline Qwen client to the preprocessing completion protocol."""
+    """Adapt an offline Qwen client to the preprocessing completion protocol."""
 
     def __init__(
         self,
@@ -159,6 +162,20 @@ class LocalTransformersClient:
             raise ValueError("max_new_tokens must be positive")
         self._client = TransformersJsonClient(model_name_or_path, device=device)
         self._max_new_tokens = max_new_tokens
+
+    @classmethod
+    def from_client(
+        cls,
+        client: TransformersJsonClient | VllmJsonClient,
+        *,
+        max_new_tokens: int,
+    ) -> "LocalTransformersClient":
+        if max_new_tokens <= 0:
+            raise ValueError("max_new_tokens must be positive")
+        instance = cls.__new__(cls)
+        instance._client = client
+        instance._max_new_tokens = max_new_tokens
+        return instance
 
     def complete(
         self,
@@ -187,7 +204,18 @@ class LocalTransformersClient:
         )
 
 
-def build_llm_client(args: argparse.Namespace) -> LocalTransformersClient:
+def build_llm_client(args: argparse.Namespace) -> object:
+    if args.backend == "vllm":
+        client = VllmJsonClient(
+            args.model,
+            max_model_len=args.max_model_len,
+            max_num_seqs=args.batch_size,
+            gpu_memory_utilization=args.gpu_memory_utilization,
+        )
+        return LocalTransformersClient.from_client(
+            client,
+            max_new_tokens=args.max_new_tokens,
+        )
     return LocalTransformersClient(
         args.model,
         device=args.device,
