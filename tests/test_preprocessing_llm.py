@@ -289,6 +289,37 @@ class LLMPreprocessingTests(unittest.TestCase):
         build_query_messages(SKILL, contract)
         self.assertEqual(contract, before)
 
+    def test_contract_prompt_defines_every_collection_item_shape(self) -> None:
+        messages = build_contract_messages(SKILL)
+        user_prompt = messages[1]["content"]
+        schema_text = user_prompt.split(
+            "Extract the contract using exactly this response shape:\n", 1
+        )[1].split("\n\nSource skill:\n", 1)[0]
+        schema = json.loads(schema_text)
+
+        for field in ("inputs", "outputs"):
+            self.assertEqual(
+                set(schema[field][0]),
+                {"artifact", "format", "required", "constraints", "evidence_quotes"},
+            )
+        for field in (
+            "preconditions",
+            "constraints",
+            "exclusions",
+            "quality_criteria",
+        ):
+            self.assertEqual(set(schema[field][0]), {"statement", "evidence_quotes"})
+        self.assertEqual(
+            set(schema["dependencies"][0]),
+            {"name", "type", "required", "evidence_quotes"},
+        )
+        self.assertIn("not default content", messages[0]["content"])
+        self.assertIn(
+            "Use an empty array only when the source contains no exact evidence",
+            messages[0]["content"],
+        )
+        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_003")
+
     def test_query_prompt_requires_single_skill_grounding(self) -> None:
         client = FakeClient([semantic_contract()])
         extract_contracts(

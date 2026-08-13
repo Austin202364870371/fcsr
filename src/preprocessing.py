@@ -255,7 +255,7 @@ class LLMConfig:
     temperature: float = 0.0
     max_attempts: int = 3
     backoff_seconds: float = 2.0
-    contract_prompt_version: str = "contract_v2_prompt_002"
+    contract_prompt_version: str = "contract_v2_prompt_003"
     query_prompt_version: str = "contract_query_prompt_005"
     limit: int | None = None
 
@@ -310,7 +310,17 @@ def build_contract_messages(
                 ],
             }
         ],
-        "outputs": [],
+        "outputs": [
+            {
+                "artifact": "English artifact",
+                "format": "format or null",
+                "required": True,
+                "constraints": [],
+                "evidence_quotes": [
+                    {"source_field": "name|description|body", "quote": "exact quote"}
+                ],
+            }
+        ],
         "preconditions": [
             {
                 "statement": "English statement",
@@ -319,7 +329,14 @@ def build_contract_messages(
                 ],
             }
         ],
-        "constraints": [],
+        "constraints": [
+            {
+                "statement": "English requirement or limitation",
+                "evidence_quotes": [
+                    {"source_field": "name|description|body", "quote": "exact quote"}
+                ],
+            }
+        ],
         "dependencies": [
             {
                 "name": "dependency",
@@ -330,8 +347,22 @@ def build_contract_messages(
                 ],
             }
         ],
-        "exclusions": [],
-        "quality_criteria": [],
+        "exclusions": [
+            {
+                "statement": "English explicitly excluded behavior or scope",
+                "evidence_quotes": [
+                    {"source_field": "name|description|body", "quote": "exact quote"}
+                ],
+            }
+        ],
+        "quality_criteria": [
+            {
+                "statement": "English measurable success or validation criterion",
+                "evidence_quotes": [
+                    {"source_field": "name|description|body", "quote": "exact quote"}
+                ],
+            }
+        ],
     }
     retry_instruction = ""
     if validation_error:
@@ -352,8 +383,15 @@ def build_contract_messages(
                 "from name, description, or body. Copy quotes directly from the source "
                 "JSON without reconstructing code or removing Markdown markers such "
                 "as **, backticks, brackets, punctuation, or whitespace. Prefer short "
-                "quotes contained within one source line. Omit unsupported optional "
-                "items."
+                "quotes contained within one source line. The array entries in the response "
+                "shape are item schemas, not default content. Independently inspect the source "
+                "for every collection field and populate every supported item. Inputs are "
+                "artifacts consumed; outputs are artifacts produced; preconditions must hold "
+                "before execution; constraints are explicit requirements or limitations; "
+                "dependencies are required tools, services, data, hardware, or knowledge; "
+                "exclusions are explicitly out-of-scope behavior; quality criteria are stated "
+                "success or validation conditions. Use an empty array only when the source "
+                "contains no exact evidence for that field. Omit unsupported optional items."
             ),
         },
         {

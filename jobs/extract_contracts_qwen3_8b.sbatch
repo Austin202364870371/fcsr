@@ -15,7 +15,7 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 MODEL_PATH="${MODEL_PATH:-$PROJECT_DIR/models/Qwen3-8B}"
 SAMPLE_PATH="${SAMPLE_PATH:-$PROJECT_DIR/data/contracts/sample_skills.jsonl.gz}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_local_qwen3_8b}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_local_qwen3_8b_prompt003}"
 LIMIT="${LIMIT:-32}"
 
 cd "$PROJECT_DIR"
