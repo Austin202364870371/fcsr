@@ -247,7 +247,7 @@ sbatch jobs/generate_single_skill_deepseek_32k.sbatch
 多 Skill 模板默认只运行 50 条 pilot；全量运行使用：
 
 ```bash
-sbatch --export=ALL,LIMIT= jobs/generate_multiskill_deepseek.sbatch
+sbatch --export=ALL,FULL_RUN=1 jobs/generate_multiskill_deepseek.sbatch
 ```
 
 ## 迁移已有本地或服务器数据

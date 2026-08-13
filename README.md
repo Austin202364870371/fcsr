@@ -237,7 +237,7 @@ sbatch jobs/generate_single_skill_deepseek_32k.sbatch
 
 Both templates default to 16 independent requests in flight. The multi-Skill template
 defaults to a 50-candidate pilot; submit the full candidate file with
-`sbatch --export=ALL,LIMIT= jobs/generate_multiskill_deepseek.sbatch`.
+`sbatch --export=ALL,FULL_RUN=1 jobs/generate_multiskill_deepseek.sbatch`.
 
 ## Why Weighted Mixing Instead of 3x Copies
 
