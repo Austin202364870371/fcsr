@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import difflib
 import gzip
 import hashlib
 import json
@@ -46,6 +47,8 @@ _CONTRACT_FIELD_LIMITS = {
     "quality_criteria": 8,
 }
 _CONTRACT_TOTAL_ITEM_LIMIT = 32
+_CONTRACT_DESCRIPTION_CHAR_LIMIT = 2000
+_CONTRACT_BODY_CHAR_LIMIT = 20000
 _CONTRACT_BASE_QUOTAS = {
     "operations": 8,
     "inputs": 4,
@@ -70,6 +73,8 @@ _TRIGGER_EVIDENCE_PATTERN = re.compile(
     r"\b(?:this\s+skill\s+)?(?:should\s+be\s+used|is\s+used|activates?|triggers?)\s+when\b"
     r"|\buse\s+(?:this\s+)?skill\s+when\b"
     r"|\bwhen\s+(?:the\s+)?user\s+(?:asks?|requests?|mentions?)\b"
+    r"|\bdo\s+not\s+invoke\b"
+    r"|\balready\s+(?:ran|run|invoked|used)\b"
     r"|\bcuando\s+(?:el\s+)?usuario\s+(?:pregunta|pide|solicita|menciona)\b"
     r"|\u5f53\u7528\u6237.*(?:\u8be2\u95ee|\u8981\u6c42|\u8bf7\u6c42|\u63d0\u5230)"
     r"|\u30e6\u30fc\u30b6\u30fc\u304c.*(?:\u5834\u5408|\u3068\u304d)"
@@ -89,6 +94,26 @@ _EXCLUSION_HEADING_PATTERN = re.compile(
     r"\b(?:out[- ]of[- ]scope|non[- ]goals?|exclusions?|unsupported|not\s+supported)\b"
     r"|\u5bf9\u8c61\u5916|\u5bfe\u8c61\u5916|\u975e\u76ee\u6807|\u8303\u56f4\u5916|\u4e0d\u652f\u6301|\uc81c\uc678|\uc9c0\uc6d0\ud558\uc9c0"
     r"|\bfuera\s+de\s+alcance\b",
+    re.IGNORECASE,
+)
+_CONDITIONAL_CONFIGURATION_EXCLUSION_PATTERN = re.compile(
+    r"(?:\B--[a-z0-9][a-z0-9-]*.*\b(?:exclude|excluded|disable|disabled|enable|enabled)\b)"
+    r"|(?:\b(?:exclude|excluded|disable|disabled|enable|enabled)\b.*\B--[a-z0-9][a-z0-9-]*)"
+    r"|(?:\bdefault(?:s)?\b.{0,24}\b(?:excluded|disabled)\b)"
+    r"|(?:\bunless\b.{0,80}\b(?:flag|option|enabled)\b)",
+    re.IGNORECASE,
+)
+_REQUEST_PRECONDITION_PATTERN = re.compile(
+    r"^\s*(?:the\s+)?user\s+(?:must\s+)?(?:asks?|requests?|wants?|needs?|provides?|"
+    r"has\s+(?:a|an)\s+(?:project|task|request|feature|problem|goal))\b",
+    re.IGNORECASE,
+)
+_SYMPTOM_PRECONDITION_PATTERN = re.compile(
+    r"\b(?:feels?|looks?|seems?|behaves?)\s+(?:wrong|off|bad|incorrect)\b",
+    re.IGNORECASE,
+)
+_WORKFLOW_PRECONDITION_PATTERN = re.compile(
+    r"\bmust\s+(?:be\s+)?(?:created|performed|run|read|checked|verified|searched)\b",
     re.IGNORECASE,
 )
 
@@ -314,7 +339,7 @@ class LLMConfig:
     max_attempts: int = 3
     backoff_seconds: float = 2.0
     batch_size: int = 1
-    contract_prompt_version: str = "contract_v2_prompt_006"
+    contract_prompt_version: str = "contract_v2_prompt_007"
     query_prompt_version: str = "contract_query_prompt_005"
     limit: int | None = None
 
@@ -356,8 +381,10 @@ def build_contract_messages(
     source = {
         "skill_id": skill.get("skill_id", ""),
         "name": skill.get("name", ""),
-        "description": str(skill.get("description", ""))[:2000],
-        "body": str(skill.get("body", ""))[:12000],
+        "description": str(skill.get("description", ""))[
+            :_CONTRACT_DESCRIPTION_CHAR_LIMIT
+        ],
+        "body": str(skill.get("body", ""))[:_CONTRACT_BODY_CHAR_LIMIT],
         "category": skill.get("category", ""),
     }
     schema = {
@@ -471,18 +498,26 @@ def build_contract_messages(
                 "Operations are actions the Skill performs, not headings or broad descriptions. "
                 "Inputs are artifacts consumed; outputs are artifacts produced. A phrase that "
                 "only says when a user should invoke this Skill is neither an input nor a "
-                "precondition. Preconditions must hold before execution. Constraints are explicit "
+                "precondition. Preconditions are external states that must already be true before "
+                "the Skill starts, such as an installed tool, available file, authentication, or "
+                "reachable service. A user request or desired task is not a precondition. A step "
+                "that the Skill itself can create, search, read, run, check, or verify is an "
+                "operation or constraint, not a precondition. Constraints are explicit "
                 "must, never, limit, or "
                 "format requirements. Dependencies are external software, services, hardware, "
                 "data, or knowledge actually required. Exclusions require an explicit forbidden "
                 "or out-of-scope statement; never infer an exclusion from a positive capability, "
                 "recommendation, or implementation detail. Put implementation prohibitions in "
-                "constraints and overall unsupported or out-of-scope behavior in exclusions; "
-                "never emit the same fact in both. An exclusion's cited quote must itself contain "
+                "constraints and unconditional unsupported or out-of-scope behavior in exclusions. "
+                "A feature disabled by default, enabled by an option, or omitted only when a flag "
+                "is supplied is configurable behavior, not an exclusion. "
+                "Never emit the same fact in both. An exclusion's cited quote must itself contain "
                 "explicit negative scope language, or be a list item directly under an explicit "
                 "Out of Scope, Exclusions, Unsupported, or Non-Goals heading. Quality criteria "
                 "require an explicit "
-                "check, acceptance condition, threshold, or observable success condition. Every "
+                "check, acceptance condition, threshold, or observable success condition. Do not "
+                "repeat a constraint, output requirement, or operation as a quality criterion; "
+                "emit the fact once in its most specific field. Every "
                 "retained item must cite at least one exact contiguous quote copied from name, "
                 "description, or body. Copy quotes without reconstructing code or removing "
                 "Markdown markers such as **, backticks, brackets, punctuation, or whitespace. "
@@ -1038,9 +1073,24 @@ def _materialize_contract(
         for index, item in enumerate(semantic_collections[field]):
             if _semantic_item_has_trigger_evidence(item):
                 warnings.append(f"dropped_trigger_condition:{field}[{index}]")
+            elif field == "preconditions" and _semantic_item_is_nonprecondition(item):
+                warnings.append(f"dropped_nonprecondition:preconditions[{index}]")
             else:
                 filtered_items.append(item)
         semantic_collections[field] = filtered_items
+
+    filtered_quality_criteria: list[dict[str, Any]] = []
+    for index, item in enumerate(semantic_collections["quality_criteria"]):
+        if any(
+            _semantic_statement_items_duplicate(item, constraint)
+            for constraint in semantic_collections["constraints"]
+        ):
+            warnings.append(
+                f"dropped_cross_field_duplicate:quality_criteria[{index}]:constraints"
+            )
+        else:
+            filtered_quality_criteria.append(item)
+    semantic_collections["quality_criteria"] = filtered_quality_criteria
 
     constraint_evidence = {
         key
@@ -1049,7 +1099,9 @@ def _materialize_contract(
     }
     filtered_exclusions: list[dict[str, Any]] = []
     for index, item in enumerate(semantic_collections["exclusions"]):
-        if constraint_evidence.intersection(_semantic_evidence_keys(item)):
+        if _semantic_item_is_conditional_configuration_exclusion(item):
+            warnings.append(f"dropped_conditional_exclusion:exclusions[{index}]")
+        elif constraint_evidence.intersection(_semantic_evidence_keys(item)):
             warnings.append(
                 f"dropped_cross_field_duplicate:exclusions[{index}]:constraints"
             )
@@ -1084,9 +1136,9 @@ def _materialize_contract(
             except ValueError:
                 warnings.append(f"dropped_unsupported_item:{context}")
 
-    if len(str(skill.get("description", ""))) > 2000:
+    if len(str(skill.get("description", ""))) > _CONTRACT_DESCRIPTION_CHAR_LIMIT:
         warnings.append("source_description_truncated")
-    if len(str(skill.get("body", ""))) > 12000:
+    if len(str(skill.get("body", ""))) > _CONTRACT_BODY_CHAR_LIMIT:
         warnings.append("source_body_truncated")
 
     return {
@@ -1140,6 +1192,68 @@ def _semantic_item_has_trigger_evidence(item: Any) -> bool:
         and _TRIGGER_EVIDENCE_PATTERN.search(citation["quote"])
         for citation in quotes
     )
+
+
+def _semantic_item_is_nonprecondition(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    statement = item.get("statement")
+    if not isinstance(statement, str):
+        return False
+    return bool(
+        _REQUEST_PRECONDITION_PATTERN.search(statement)
+        or _SYMPTOM_PRECONDITION_PATTERN.search(statement)
+        or _WORKFLOW_PRECONDITION_PATTERN.search(statement)
+    )
+
+
+def _semantic_item_is_conditional_configuration_exclusion(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    texts = [item.get("statement", "")]
+    quotes = item.get("evidence_quotes")
+    if isinstance(quotes, list):
+        texts.extend(
+            citation.get("quote", "")
+            for citation in quotes
+            if isinstance(citation, dict)
+        )
+    combined = "\n".join(text for text in texts if isinstance(text, str))
+    return bool(_CONDITIONAL_CONFIGURATION_EXCLUSION_PATTERN.search(combined))
+
+
+def _semantic_statement_items_duplicate(left: Any, right: Any) -> bool:
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    left_statement = left.get("statement")
+    right_statement = right.get("statement")
+    if not isinstance(left_statement, str) or not isinstance(right_statement, str):
+        return False
+    left_normalized = _normalize_semantic_statement(left_statement)
+    right_normalized = _normalize_semantic_statement(right_statement)
+    if not left_normalized or not right_normalized:
+        return False
+    similarity = difflib.SequenceMatcher(
+        None, left_normalized, right_normalized
+    ).ratio()
+    shared_evidence = bool(
+        _semantic_evidence_keys(left).intersection(_semantic_evidence_keys(right))
+    )
+    return similarity >= 0.97 or (shared_evidence and similarity >= 0.90)
+
+
+def _normalize_semantic_statement(statement: str) -> str:
+    normalized = statement.casefold()
+    normalized = re.sub(
+        r"\b(?:must|should|shall|the|a|an|be|is|are|was|were|to)\b",
+        " ",
+        normalized,
+    )
+    normalized = re.sub(r"\bhas\b", "have", normalized)
+    normalized = re.sub(r"\bcompiles\b", "compile", normalized)
+    normalized = re.sub(r"\bhandles\b", "handle", normalized)
+    normalized = re.sub(r"\bincluded\b", "include", normalized)
+    return " ".join(re.findall(r"[\w%+.-]+", normalized, re.UNICODE))
 
 
 def _has_explicit_exclusion_evidence(

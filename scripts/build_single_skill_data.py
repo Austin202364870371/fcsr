@@ -55,8 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_llm_arguments(contracts)
     contracts.add_argument("--sample", default="data/contracts_32k/sample_skills.jsonl.gz")
-    contracts.add_argument("--output", default="data/contracts_32k_prompt006/contracts.jsonl.gz")
-    contracts.add_argument("--failures", default="data/contracts_32k_prompt006/failures.jsonl.gz")
+    contracts.add_argument("--output", default="data/contracts_32k_prompt007/contracts.jsonl.gz")
+    contracts.add_argument("--failures", default="data/contracts_32k_prompt007/failures.jsonl.gz")
     contracts.add_argument("--no-progress", action="store_true")
 
     queries = subparsers.add_parser(
@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_llm_arguments(queries)
     queries.add_argument("--sample", default="data/contracts_32k/sample_skills.jsonl.gz")
-    queries.add_argument("--contracts", default="data/contracts_32k_prompt006/contracts.jsonl.gz")
+    queries.add_argument("--contracts", default="data/contracts_32k_prompt007/contracts.jsonl.gz")
     queries.add_argument("--output", default="data/synthetic/single_skill_v1/queries.jsonl.gz")
     queries.add_argument(
         "--failures",

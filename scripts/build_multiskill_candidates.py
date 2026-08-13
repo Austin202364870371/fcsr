@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--contracts",
         type=Path,
-        default=Path("data/contracts_32k_prompt006/contracts.jsonl.gz"),
+        default=Path("data/contracts_32k_prompt007/contracts.jsonl.gz"),
     )
     parser.add_argument(
         "--queries",

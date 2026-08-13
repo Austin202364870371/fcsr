@@ -37,7 +37,7 @@
 
 ## 下一步
 
-1. 完成 prompt006 的 32k Contract、单 Skill query 与多 Skill query 正式生成，并以 manifest 固化实际比例。
+1. 完成 prompt007 的 32k Contract、单 Skill query 与多 Skill query 正式生成，并以 manifest 固化实际比例。
 2. 用 `scripts/build_multiskill_training_data.py` 构建单遍 weighted 数据；不生成任何 repeat/replica 记录。
 3. 在相同 epoch、随机种子、底座模型和候选池下比较单 Skill、`1.0/1.0`、`1.5/3.0` 与更强权重设置。
 4. 对复核队列进行抽样审计，报告结构通过率之外的组合语义质量。

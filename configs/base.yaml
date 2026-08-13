@@ -5,8 +5,8 @@ data:
   raw_skills: data/raw/skills_easy.jsonl.gz
   raw_tasks: data/raw/evaluation_queries.jsonl.gz
   contract_sample: data/contracts_32k/sample_skills.jsonl.gz
-  contracts: data/contracts_32k_prompt006/contracts.jsonl.gz
-  contract_failures: data/contracts_32k_prompt006/failures.jsonl.gz
+  contracts: data/contracts_32k_prompt007/contracts.jsonl.gz
+  contract_failures: data/contracts_32k_prompt007/failures.jsonl.gz
   contract_manifest: data/contracts_32k/manifest.json
   single_skill_queries: data/synthetic/single_skill_v1/queries.jsonl.gz
   single_skill_biencoder_train: data/synthetic/single_skill_v1/train_biencoder.jsonl.gz

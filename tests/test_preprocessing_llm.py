@@ -329,9 +329,10 @@ class LLMPreprocessingTests(unittest.TestCase):
         )
 
     def test_contract_prompt_caps_body_and_query_prompt_does_not_mutate_contract(self) -> None:
-        long_skill = {**SKILL, "body": "x" * 13000}
+        long_skill = {**SKILL, "body": "x" * 21000}
         messages = build_contract_messages(long_skill)
-        self.assertNotIn("x" * 12001, messages[1]["content"])
+        self.assertIn("x" * 20000, messages[1]["content"])
+        self.assertNotIn("x" * 20001, messages[1]["content"])
 
         client = FakeClient([semantic_contract()])
         extract_contracts(
@@ -381,7 +382,19 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertIn("Never copy an entire fenced code block", messages[0]["content"])
         self.assertIn("Field limits are maxima, never targets", messages[0]["content"])
         self.assertIn("never more than 32", messages[0]["content"])
-        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_006")
+        self.assertIn("external states that must already be true", messages[0]["content"])
+        self.assertIn("configurable behavior, not an exclusion", messages[0]["content"])
+        self.assertIn("Do not repeat a constraint", messages[0]["content"])
+        self.assertEqual(self.config.contract_prompt_version, "contract_v2_prompt_007")
+
+    def test_contract_prompt_reads_twenty_thousand_body_characters(self) -> None:
+        long_skill = copy.deepcopy(SKILL)
+        long_skill["body"] = SKILL["body"] + ("x" * 21000)
+        messages = build_contract_messages(long_skill)
+        source = json.loads(messages[1]["content"].split("\n\nSource skill:\n", 1)[1])
+
+        self.assertEqual(len(source["body"]), 20000)
+        self.assertTrue(source["body"].startswith(SKILL["body"]))
 
     def test_contract_materializer_caps_fields_and_deduplicates_exclusions(self) -> None:
         explicit_skill = copy.deepcopy(SKILL)
@@ -491,6 +504,103 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertIn("dropped_trigger_condition:inputs[0]", warnings)
         self.assertIn("dropped_trigger_condition:preconditions[0]", warnings)
         self.assertIn("dropped_implicit_exclusion:exclusions[0]", warnings)
+
+    def test_materializer_drops_nonpreconditions_conditional_exclusions_and_duplicate_quality(self) -> None:
+        source = copy.deepcopy(SKILL)
+        source["body"] += (
+            "\nUse `--no-database` to exclude database support."
+            "\nCode must compile."
+            "\nAnimation feels wrong."
+        )
+        write_jsonl_atomic(self.sample, [source])
+        semantic = semantic_contract()
+        semantic["preconditions"] = [
+            {
+                "statement": "The user provides a complex feature request.",
+                "evidence_quotes": [
+                    {"source_field": "description", "quote": SKILL["description"]}
+                ],
+            },
+            {
+                "statement": "The output directory must be created.",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": SKILL["body"]}
+                ],
+            },
+            {
+                "statement": "Animation feels wrong.",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": "Animation feels wrong."}
+                ],
+            },
+        ]
+        semantic["constraints"] = [
+            {
+                "statement": "Code must compile.",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": "Code must compile."}
+                ],
+            }
+        ]
+        semantic["quality_criteria"] = [
+            {
+                "statement": "Code compiles.",
+                "evidence_quotes": [
+                    {"source_field": "body", "quote": "Code must compile."}
+                ],
+            }
+        ]
+        semantic["exclusions"] = [
+            {
+                "statement": "Database support is excluded when --no-database is used.",
+                "evidence_quotes": [
+                    {
+                        "source_field": "body",
+                        "quote": "Use `--no-database` to exclude database support.",
+                    }
+                ],
+            }
+        ]
+
+        summary = extract_contracts(
+            self.sample,
+            self.contracts,
+            self.failures,
+            FakeClient([semantic]),
+            self.config,
+        )
+
+        self.assertEqual(summary.succeeded, 1)
+        contract = load_jsonl(self.contracts)[0]
+        self.assertEqual(contract["preconditions"], [])
+        self.assertEqual(contract["quality_criteria"], [])
+        self.assertEqual(contract["exclusions"], [])
+        warnings = contract["extraction"]["warnings"]
+        self.assertIn("dropped_nonprecondition:preconditions[0]", warnings)
+        self.assertIn("dropped_nonprecondition:preconditions[1]", warnings)
+        self.assertIn("dropped_nonprecondition:preconditions[2]", warnings)
+        self.assertIn(
+            "dropped_cross_field_duplicate:quality_criteria[0]:constraints",
+            warnings,
+        )
+        self.assertIn("dropped_conditional_exclusion:exclusions[0]", warnings)
+
+    def test_materializer_warns_only_beyond_twenty_thousand_body_characters(self) -> None:
+        long_skill = copy.deepcopy(SKILL)
+        long_skill["body"] = SKILL["body"] + ("x" * 21000)
+        write_jsonl_atomic(self.sample, [long_skill])
+
+        summary = extract_contracts(
+            self.sample,
+            self.contracts,
+            self.failures,
+            FakeClient([semantic_contract()]),
+            self.config,
+        )
+
+        self.assertEqual(summary.succeeded, 1)
+        warnings = load_jsonl(self.contracts)[0]["extraction"]["warnings"]
+        self.assertIn("source_body_truncated", warnings)
 
     def test_contract_materializer_retains_list_item_under_exclusion_heading(self) -> None:
         scoped_skill = copy.deepcopy(SKILL)

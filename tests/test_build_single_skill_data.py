@@ -23,7 +23,7 @@ class BuildSingleSkillDataTests(unittest.TestCase):
         )
         self.assertEqual(
             contracts.output,
-            "data/contracts_32k_prompt006/contracts.jsonl.gz",
+            "data/contracts_32k_prompt007/contracts.jsonl.gz",
         )
 
     def test_progress_can_be_disabled_for_supported_commands(self) -> None:
