@@ -60,16 +60,9 @@ python -B -m unittest discover -s tests -v
 
 On CUDA hosts, install the PyTorch build matching the host CUDA environment before installing `requirements.txt` when necessary. See [PyTorch installation](https://pytorch.org/get-started/locally/).
 
-Contract extraction and single-skill query generation default to the offline model at
-`models/Qwen3-8B`; no API key or network access is required. To opt into the legacy
-DeepSeek path, create an untracked `.env` file and pass
-`--provider deepseek --model deepseek-v4-flash`:
-
-```dotenv
-DEEPSEEK_API_KEY=your-key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
-```
+Contract extraction and single-skill query generation run exclusively through the
+offline Transformers model at `models/Qwen3-8B`. They require no API key or network
+access.
 
 ## Data Pipeline
 
@@ -79,7 +72,7 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 # Benchmark-safe Contract sample, then offline evidence-grounded Contracts.
 python -B scripts/build_single_skill_data.py sample --overwrite
 python -B scripts/build_single_skill_data.py contracts `
-  --provider local --model models/Qwen3-8B --device cuda
+  --model models/Qwen3-8B --device cuda
 
 # Contract-grounded queries, local negatives, then GPU semantic negatives.
 python -B scripts/build_single_skill_data.py queries

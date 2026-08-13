@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from dotenv import load_dotenv
 from tqdm import tqdm
 
 
@@ -39,11 +37,6 @@ from preprocessing import (
 from multiskill_generation import TransformersJsonClient
 
 
-def load_project_env(env_path: str | Path = ROOT / ".env") -> bool:
-    """Load local secrets without overriding explicitly exported variables."""
-    return load_dotenv(dotenv_path=env_path, override=False)
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="FCSR preprocessing pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -57,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument("--overwrite", action="store_true")
 
     contracts = subparsers.add_parser(
-        "contracts", help="extract evidence-grounded contracts with a local model or DeepSeek"
+        "contracts", help="extract evidence-grounded contracts with a local model"
     )
     _add_llm_arguments(contracts)
     contracts.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
@@ -66,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     contracts.add_argument("--no-progress", action="store_true")
 
     queries = subparsers.add_parser(
-        "queries", help="generate contract-grounded queries with a local model or DeepSeek"
+        "queries", help="generate contract-grounded queries with a local model"
     )
     _add_llm_arguments(queries)
     queries.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
@@ -107,16 +100,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_llm_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--provider", choices=("local", "deepseek"), default="local")
     parser.add_argument("--model", default="models/Qwen3-8B")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--max-new-tokens", type=int, default=3072)
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument(
-        "--thinking",
-        choices=("disabled", "enabled"),
-        default="disabled",
-    )
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--backoff", type=float, default=2.0)
     parser.add_argument("--limit", type=int)
@@ -158,30 +145,6 @@ def run_sample(args: argparse.Namespace) -> dict:
     }
 
 
-class DeepSeekClient:
-    def __init__(self) -> None:
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
-            raise RuntimeError(
-                "openai is required for DeepSeek calls: pip install openai"
-            ) from exc
-        api_key = os.environ.get("DEEPSEEK_API_KEY")
-        if not api_key:
-            raise RuntimeError("DEEPSEEK_API_KEY is not set")
-        self._client = OpenAI(
-            api_key=api_key,
-            base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-        )
-
-    def complete(self, **kwargs: object) -> str:
-        response = self._client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content
-        if not isinstance(content, str):
-            raise ValueError("DeepSeek returned an empty response")
-        return content
-
-
 class LocalTransformersClient:
     """Adapt the offline Qwen client to the preprocessing completion protocol."""
 
@@ -210,24 +173,18 @@ class LocalTransformersClient:
         )
 
 
-def build_llm_client(args: argparse.Namespace) -> object:
-    if args.provider == "local":
-        if args.thinking != "disabled":
-            raise ValueError("local JSON generation requires --thinking disabled")
-        return LocalTransformersClient(
-            args.model,
-            device=args.device,
-            max_new_tokens=args.max_new_tokens,
-        )
-    return DeepSeekClient()
+def build_llm_client(args: argparse.Namespace) -> LocalTransformersClient:
+    return LocalTransformersClient(
+        args.model,
+        device=args.device,
+        max_new_tokens=args.max_new_tokens,
+    )
 
 
 def _llm_config(args: argparse.Namespace) -> LLMConfig:
     return LLMConfig(
         model=args.model,
-        provider=args.provider,
         temperature=args.temperature,
-        thinking=args.thinking,
         max_attempts=args.max_attempts,
         backoff_seconds=args.backoff,
         limit=args.limit,
@@ -431,7 +388,6 @@ def run_semantic_negatives(args: argparse.Namespace) -> dict:
 
 
 def main() -> None:
-    load_project_env()
     parser = build_parser()
     args = parser.parse_args()
     if args.command == "sample":

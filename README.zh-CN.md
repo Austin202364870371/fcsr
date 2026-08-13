@@ -60,15 +60,8 @@ python -B -m unittest discover -s tests -v
 
 在 CUDA 机器上，必要时先根据 [PyTorch 安装说明](https://pytorch.org/get-started/locally/) 安装与宿主环境匹配的 PyTorch，再安装 `requirements.txt`。
 
-Contract 抽取和单 Skill 查询生成默认使用本地的 `models/Qwen3-8B`，不需要 API
-密钥，也不会访问网络。如需显式使用旧的 DeepSeek 路径，再配置不提交的 `.env`
-并传入 `--provider deepseek --model deepseek-v4-flash`：
-
-```dotenv
-DEEPSEEK_API_KEY=your-key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
-```
+Contract 抽取和单 Skill 查询生成只使用本地 Transformers 模型
+`models/Qwen3-8B`，不需要 API 密钥，也不会访问网络。
 
 ## 数据构建
 
@@ -78,7 +71,7 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 # 先构建 benchmark-safe 的 Contract 样本，再抽取带证据的 Contract。
 python -B scripts/build_single_skill_data.py sample --overwrite
 python -B scripts/build_single_skill_data.py contracts `
-  --provider local --model models/Qwen3-8B --device cuda
+  --model models/Qwen3-8B --device cuda
 
 # 生成查询、局部负例，再在 GPU 上挖掘语义负例。
 python -B scripts/build_single_skill_data.py queries

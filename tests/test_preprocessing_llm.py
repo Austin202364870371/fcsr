@@ -99,7 +99,7 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.queries = self.root / "queries.jsonl"
         write_jsonl_atomic(self.sample, [SKILL])
         self.config = LLMConfig(
-            model="deepseek-v4-flash",
+            model="models/Qwen3-8B",
             max_attempts=2,
             backoff_seconds=0,
         )
@@ -121,8 +121,8 @@ class LLMPreprocessingTests(unittest.TestCase):
         contract = load_jsonl(self.contracts)[0]
         self.assertEqual(summary.succeeded, 1)
         self.assertEqual(
-            client.requests[0]["extra_body"],
-            {"thinking": {"type": "disabled"}},
+            set(client.requests[0]),
+            {"messages", "temperature"},
         )
         self.assertEqual(contract["source_languages"], ["es"])
         self.assertEqual(contract["canonical_language"], "en")
@@ -173,7 +173,7 @@ class LLMPreprocessingTests(unittest.TestCase):
             ]
         )
         config = LLMConfig(
-            model="deepseek-v4-flash",
+            model="models/Qwen3-8B",
             max_attempts=2,
             backoff_seconds=2,
         )

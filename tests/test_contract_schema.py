@@ -107,8 +107,8 @@ def valid_contract() -> dict:
         ],
         "extraction": {
             "method": "llm",
-            "provider": "deepseek",
-            "model": "deepseek-v4-flash",
+            "provider": "local_transformers",
+            "model": "models/Qwen3-8B",
             "prompt_version": "contract_v2_prompt_001",
             "temperature": 0.0,
             "status": "validated",

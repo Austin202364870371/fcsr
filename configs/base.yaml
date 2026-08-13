@@ -21,7 +21,6 @@ contracts:
   sampling_strategy: category_language_stratified
   sample_size: 8000
   llm:
-    provider: local
     model: models/Qwen3-8B
     temperature: 0.0
     max_attempts: 3

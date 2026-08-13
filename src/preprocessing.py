@@ -251,10 +251,8 @@ def _stable_seed(seed: int, value: str) -> int:
 
 @dataclass(frozen=True)
 class LLMConfig:
-    model: str = "deepseek-v4-flash"
-    provider: str = "deepseek"
+    model: str = "models/Qwen3-8B"
     temperature: float = 0.0
-    thinking: str = "disabled"
     max_attempts: int = 3
     backoff_seconds: float = 2.0
     contract_prompt_version: str = "contract_v2_prompt_002"
@@ -480,10 +478,7 @@ def extract_contracts(
             try:
                 response = client.complete(
                     messages=build_contract_messages(skill, validation_error),
-                    model=config.model,
                     temperature=config.temperature,
-                    response_format={"type": "json_object"},
-                    extra_body={"thinking": {"type": config.thinking}},
                 )
                 semantic = _parse_json_object(response)
                 contract = _materialize_contract(semantic, skill, config, attempts)
@@ -575,10 +570,7 @@ def generate_queries(
             try:
                 response = client.complete(
                     messages=build_query_messages(skill, contract, validation_error),
-                    model=config.model,
                     temperature=config.temperature,
-                    response_format={"type": "json_object"},
-                    extra_body={"thinking": {"type": config.thinking}},
                 )
                 payload = _parse_json_object(response)
                 query = payload.get("query")
@@ -623,7 +615,7 @@ def generate_queries(
                 "positive_skill_id": skill["skill_id"],
                 "source_hash": source_hash,
                 "generator": {
-                    "provider": config.provider,
+                    "provider": "local_transformers",
                     "model": config.model,
                     "prompt_version": config.query_prompt_version,
                     "attempts": attempts,
@@ -854,7 +846,7 @@ def _materialize_contract(
         "evidence": evidence,
         "extraction": {
             "method": "llm",
-            "provider": config.provider,
+            "provider": "local_transformers",
             "model": config.model,
             "prompt_version": config.contract_prompt_version,
             "temperature": config.temperature,

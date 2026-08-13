@@ -29,7 +29,6 @@ mkdir -p "$PROJECT_DIR/logs" "$OUTPUT_DIR"
 
 arguments=(
   contracts
-  --provider local
   --model "$MODEL_PATH"
   --device cuda
   --sample "$SAMPLE_PATH"
