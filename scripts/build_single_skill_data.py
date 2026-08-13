@@ -35,7 +35,7 @@ from preprocessing import (
     sha256_file,
     stratified_sample,
 )
-from deepseek_client import DEFAULT_MODEL, DeepSeekJsonClient
+from deepseek_client import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DeepSeekJsonClient
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _add_llm_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", default=DEFAULT_MODEL)
-    parser.add_argument("--max-new-tokens", type=int, default=3072)
+    parser.add_argument("--max-new-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument("--concurrency", type=int, default=16)
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--temperature", type=float, default=0.0)

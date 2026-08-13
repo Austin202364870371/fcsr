@@ -195,7 +195,10 @@ sbatch jobs/extract_contracts_deepseek_32k.sbatch
 Each request contains one Skill; `CONCURRENCY=16` controls only how many independent
 requests are in flight. Completed records are validated and appended individually.
 Existing `(skill_id, source_hash)` records are skipped, so resubmitting the formal job
-resumes safely. The formal output is `data/contracts_32k/contracts.jsonl.gz`.
+resumes safely. Contract responses allow up to 6,144 output tokens. Terminal failures
+record the last raw response and provider `finish_reason` when available, which makes
+truncation distinguishable from malformed JSON. The formal output is
+`data/contracts_32k/contracts.jsonl.gz`.
 
 The multi-Skill API generation template is
 [jobs/generate_multiskill_deepseek.sbatch](jobs/generate_multiskill_deepseek.sbatch):

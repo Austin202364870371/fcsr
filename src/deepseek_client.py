@@ -9,6 +9,18 @@ from typing import Any
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_MAX_TOKENS = 6144
+
+
+class CompletionText(str):
+    """String response carrying provider termination metadata."""
+
+    finish_reason: str | None
+
+    def __new__(cls, content: str, finish_reason: str | None = None) -> "CompletionText":
+        instance = super().__new__(cls, content)
+        instance.finish_reason = finish_reason
+        return instance
 
 
 class DeepSeekJsonClient:
@@ -19,7 +31,7 @@ class DeepSeekJsonClient:
         *,
         model: str = DEFAULT_MODEL,
         concurrency: int = 16,
-        max_tokens: int = 3072,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         timeout: float = 180.0,
         api_key: str | None = None,
         base_url: str | None = None,
@@ -60,7 +72,7 @@ class DeepSeekJsonClient:
         temperature: float,
         max_new_tokens: int | None = None,
         **_: object,
-    ) -> str:
+    ) -> CompletionText:
         response = self._client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -69,10 +81,11 @@ class DeepSeekJsonClient:
             response_format={"type": "json_object"},
             extra_body={"thinking": {"type": "disabled"}},
         )
-        content = response.choices[0].message.content
+        choice = response.choices[0]
+        content = choice.message.content
         if not isinstance(content, str) or not content.strip():
             raise ValueError("DeepSeek returned an empty response")
-        return content
+        return CompletionText(content, getattr(choice, "finish_reason", None))
 
     def complete_many(
         self,

@@ -193,7 +193,9 @@ sbatch jobs/extract_contracts_deepseek_32k.sbatch
 
 每个请求只包含一条 Skill；`CONCURRENCY=16` 只控制同时在途的独立请求数。
 每条完成后会单独校验并追加保存。正式输出按 `(skill_id, source_hash)` 跳过
-已完成记录，因此中断后可以安全续跑；输出位于
+已完成记录，因此中断后可以安全续跑。Contract 最大输出为 6,144 tokens；最终
+失败记录会在可用时保存最后一次原始响应和 API `finish_reason`，以便区分长度截断
+与 JSON 语法错误。输出位于
 `data/contracts_32k/contracts.jsonl.gz`。
 
 多 Skill API 生成模板位于

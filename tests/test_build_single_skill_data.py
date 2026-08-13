@@ -14,6 +14,7 @@ class BuildSingleSkillDataTests(unittest.TestCase):
         self.assertEqual(queries.model, "deepseek-v4-flash")
         self.assertEqual(contracts.concurrency, 16)
         self.assertEqual(queries.concurrency, 16)
+        self.assertEqual(contracts.max_new_tokens, 6144)
         sample = parser.parse_args(["sample"])
         self.assertEqual(sample.sample_size, 32000)
         self.assertEqual(sample.output_dir, "data/contracts_32k")

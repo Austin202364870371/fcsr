@@ -279,6 +279,8 @@ class _ContractWorkItem:
     validation_error: str | None = None
     contract: dict[str, Any] | None = None
     error: Exception | None = None
+    raw_response: str | None = None
+    finish_reason: str | None = None
 
 
 def build_contract_messages(
@@ -528,6 +530,8 @@ def extract_contracts(
                     item.source_hash,
                     item.attempts,
                     item.error,
+                    raw_response=item.raw_response,
+                    finish_reason=item.finish_reason,
                 ),
             )
         else:
@@ -578,6 +582,7 @@ def _extract_contract_item(
 ) -> _ContractWorkItem:
     for attempt in range(1, config.max_attempts + 1):
         item.attempts = attempt
+        response: str | None = None
         try:
             response = client.complete(
                 messages=build_contract_messages(item.skill, item.validation_error),
@@ -594,6 +599,8 @@ def _extract_contract_item(
         except Exception as exc:
             item.error = exc
             item.contract = None
+            item.raw_response = str(response) if response is not None else None
+            item.finish_reason = getattr(response, "finish_reason", None)
             item.validation_error = (
                 f"{type(exc).__name__}: {exc}"
                 if isinstance(exc, ValueError)
@@ -988,8 +995,11 @@ def _failure_record(
     source_hash: str,
     attempts: int,
     error: Exception | None,
+    *,
+    raw_response: str | None = None,
+    finish_reason: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    record = {
         "stage": stage,
         "skill_id": skill.get("skill_id"),
         "source_hash": source_hash,
@@ -997,6 +1007,11 @@ def _failure_record(
         "error_type": type(error).__name__ if error is not None else "UnknownError",
         "error": str(error) if error is not None else "unknown error",
     }
+    if finish_reason is not None:
+        record["finish_reason"] = finish_reason
+    if raw_response is not None:
+        record["raw_response"] = raw_response
+    return record
 
 
 def _prune_resolved_failures(

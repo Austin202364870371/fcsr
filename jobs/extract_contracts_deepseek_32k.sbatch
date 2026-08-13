@@ -32,6 +32,6 @@ python -B scripts/build_single_skill_data.py contracts \
   --output "$SAMPLE_DIR/contracts.jsonl.gz" \
   --failures "$SAMPLE_DIR/failures.jsonl.gz" \
   --concurrency "$CONCURRENCY" \
-  --max-new-tokens 3072 \
+  --max-new-tokens 6144 \
   --max-attempts 3 \
   --backoff 2

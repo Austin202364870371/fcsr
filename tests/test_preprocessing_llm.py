@@ -91,6 +91,13 @@ class FakeClient:
         return json.dumps(response, ensure_ascii=False)
 
 
+class MetadataText(str):
+    def __new__(cls, content: str, finish_reason: str) -> "MetadataText":
+        instance = super().__new__(cls, content)
+        instance.finish_reason = finish_reason
+        return instance
+
+
 class ConcurrentFakeClient:
     def __init__(self) -> None:
         self.lock = threading.Lock()
@@ -440,6 +447,23 @@ class LLMPreprocessingTests(unittest.TestCase):
         failure = load_jsonl(self.failures)[0]
         self.assertEqual(failure["skill_id"], SKILL["skill_id"])
         self.assertIn("quote", failure["error"])
+
+    def test_invalid_json_failure_preserves_raw_response_and_finish_reason(self) -> None:
+        truncated = MetadataText('{"capability":', "length")
+        client = FakeClient([truncated, truncated])
+
+        summary = extract_contracts(
+            self.sample,
+            self.contracts,
+            self.failures,
+            client,
+            self.config,
+        )
+
+        self.assertEqual(summary.failed, 1)
+        failure = load_jsonl(self.failures)[0]
+        self.assertEqual(failure["finish_reason"], "length")
+        self.assertEqual(failure["raw_response"], '{"capability":')
 
     def test_matching_skill_and_source_hash_are_skipped_on_resume(self) -> None:
         first_client = FakeClient([semantic_contract()])

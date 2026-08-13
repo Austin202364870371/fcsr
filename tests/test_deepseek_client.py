@@ -25,7 +25,12 @@ class FakeCompletions:
         if content == "fail":
             raise RuntimeError("temporary API failure")
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=f'{{"value":"{content}"}}'))]
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=f'{{"value":"{content}"}}'),
+                    finish_reason="stop",
+                )
+            ]
         )
 
 
@@ -46,11 +51,12 @@ class DeepSeekJsonClientTests(unittest.TestCase):
         )
 
         self.assertEqual(response, '{"value":"one"}')
+        self.assertEqual(response.finish_reason, "stop")
         request = api.completions.calls[0]
         self.assertEqual(request["model"], "deepseek-v4-flash")
         self.assertEqual(request["response_format"], {"type": "json_object"})
         self.assertEqual(request["extra_body"], {"thinking": {"type": "disabled"}})
-        self.assertEqual(request["max_tokens"], 3072)
+        self.assertEqual(request["max_tokens"], 6144)
 
     def test_complete_many_is_bounded_and_preserves_individual_failures(self) -> None:
         api = FakeOpenAIClient()
