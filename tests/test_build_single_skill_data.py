@@ -8,17 +8,15 @@ from scripts.build_single_skill_data import build_parser, load_project_env
 
 
 class BuildSingleSkillDataTests(unittest.TestCase):
-    def test_uses_deepseek_v4_flash_by_default(self) -> None:
+    def test_uses_local_qwen3_8b_by_default(self) -> None:
         parser = build_parser()
 
-        self.assertEqual(
-            parser.parse_args(["contracts"]).model,
-            "deepseek-v4-flash",
-        )
-        self.assertEqual(
-            parser.parse_args(["queries"]).model,
-            "deepseek-v4-flash",
-        )
+        contracts = parser.parse_args(["contracts"])
+        queries = parser.parse_args(["queries"])
+        self.assertEqual(contracts.provider, "local")
+        self.assertEqual(contracts.model, "models/Qwen3-8B")
+        self.assertEqual(queries.provider, "local")
+        self.assertEqual(queries.model, "models/Qwen3-8B")
 
     def test_progress_can_be_disabled_for_supported_commands(self) -> None:
         parser = build_parser()

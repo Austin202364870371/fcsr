@@ -21,8 +21,8 @@ contracts:
   sampling_strategy: category_language_stratified
   sample_size: 8000
   llm:
-    provider: deepseek
-    model: deepseek-v4-flash
+    provider: local
+    model: models/Qwen3-8B
     temperature: 0.0
     max_attempts: 3
     backoff_seconds: 2.0

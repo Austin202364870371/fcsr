@@ -60,7 +60,10 @@ python -B -m unittest discover -s tests -v
 
 On CUDA hosts, install the PyTorch build matching the host CUDA environment before installing `requirements.txt` when necessary. See [PyTorch installation](https://pytorch.org/get-started/locally/).
 
-For Contract extraction and single-skill query generation, create an untracked `.env` file:
+Contract extraction and single-skill query generation default to the offline model at
+`models/Qwen3-8B`; no API key or network access is required. To opt into the legacy
+DeepSeek path, create an untracked `.env` file and pass
+`--provider deepseek --model deepseek-v4-flash`:
 
 ```dotenv
 DEEPSEEK_API_KEY=your-key
@@ -73,9 +76,10 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 ### 1. Build Single-Skill Data
 
 ```powershell
-# Benchmark-safe Contract sample, then evidence-grounded Contracts.
+# Benchmark-safe Contract sample, then offline evidence-grounded Contracts.
 python -B scripts/build_single_skill_data.py sample --overwrite
-python -B scripts/build_single_skill_data.py contracts
+python -B scripts/build_single_skill_data.py contracts `
+  --provider local --model models/Qwen3-8B --device cuda
 
 # Contract-grounded queries, local negatives, then GPU semantic negatives.
 python -B scripts/build_single_skill_data.py queries
@@ -173,6 +177,20 @@ The renderer writes:
 Bold values in the final table identify numerical maxima only, not statistical significance.
 
 ## Slurm Query Generation
+
+The offline Contract pilot is
+[jobs/extract_contracts_qwen3_8b.sbatch](jobs/extract_contracts_qwen3_8b.sbatch).
+It requests one compute-node GPU, runs with offline Hugging Face settings, writes to
+`data/contracts_local_qwen3_8b/`, and processes 32 Skills by default so the results can
+be audited before a full run:
+
+```bash
+sbatch jobs/extract_contracts_qwen3_8b.sbatch
+```
+
+Set `LIMIT` to an empty value only after the pilot output and throughput have been
+checked. Existing `(skill_id, source_hash)` records are skipped, so resubmitting the
+same output path resumes safely.
 
 The Qwen3-8B pilot template is [jobs/generate_multiskill_qwen3_8b.sbatch](jobs/generate_multiskill_qwen3_8b.sbatch). Submit it after setting the project path and checking the requested QoS/GPU against local cluster rules:
 

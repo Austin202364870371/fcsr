@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import gzip
 import hashlib
 import json
 import math
@@ -889,7 +890,8 @@ def _stream_if_exists(path: str | Path) -> Iterable[dict[str, Any]]:
 def _append_jsonl(path: str | Path, record: dict[str, Any]) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("a", encoding="utf-8", newline="\n") as handle:
+    opener = gzip.open if destination.name.endswith(".gz") else open
+    with opener(destination, "at", encoding="utf-8", newline="\n") as handle:
         handle.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
         handle.write("\n")
         handle.flush()

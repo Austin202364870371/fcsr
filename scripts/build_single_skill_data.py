@@ -36,6 +36,7 @@ from preprocessing import (
     sha256_file,
     stratified_sample,
 )
+from multiskill_generation import TransformersJsonClient
 
 
 def load_project_env(env_path: str | Path = ROOT / ".env") -> bool:
@@ -56,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument("--overwrite", action="store_true")
 
     contracts = subparsers.add_parser(
-        "contracts", help="extract evidence-grounded contracts with DeepSeek"
+        "contracts", help="extract evidence-grounded contracts with a local model or DeepSeek"
     )
     _add_llm_arguments(contracts)
     contracts.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
@@ -65,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     contracts.add_argument("--no-progress", action="store_true")
 
     queries = subparsers.add_parser(
-        "queries", help="generate contract-grounded synthetic queries with DeepSeek"
+        "queries", help="generate contract-grounded queries with a local model or DeepSeek"
     )
     _add_llm_arguments(queries)
     queries.add_argument("--sample", default="data/contracts/sample_skills.jsonl.gz")
@@ -106,7 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_llm_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--model", default="deepseek-v4-flash")
+    parser.add_argument("--provider", choices=("local", "deepseek"), default="local")
+    parser.add_argument("--model", default="models/Qwen3-8B")
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--max-new-tokens", type=int, default=3072)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument(
         "--thinking",
@@ -178,9 +182,50 @@ class DeepSeekClient:
         return content
 
 
+class LocalTransformersClient:
+    """Adapt the offline Qwen client to the preprocessing completion protocol."""
+
+    def __init__(
+        self,
+        model_name_or_path: str,
+        device: str = "cuda",
+        max_new_tokens: int = 3072,
+    ) -> None:
+        if max_new_tokens <= 0:
+            raise ValueError("max_new_tokens must be positive")
+        self._client = TransformersJsonClient(model_name_or_path, device=device)
+        self._max_new_tokens = max_new_tokens
+
+    def complete(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        temperature: float,
+        **_: object,
+    ) -> str:
+        return self._client.complete(
+            messages,
+            temperature=temperature,
+            max_new_tokens=self._max_new_tokens,
+        )
+
+
+def build_llm_client(args: argparse.Namespace) -> object:
+    if args.provider == "local":
+        if args.thinking != "disabled":
+            raise ValueError("local JSON generation requires --thinking disabled")
+        return LocalTransformersClient(
+            args.model,
+            device=args.device,
+            max_new_tokens=args.max_new_tokens,
+        )
+    return DeepSeekClient()
+
+
 def _llm_config(args: argparse.Namespace) -> LLMConfig:
     return LLMConfig(
         model=args.model,
+        provider=args.provider,
         temperature=args.temperature,
         thinking=args.thinking,
         max_attempts=args.max_attempts,
@@ -220,7 +265,7 @@ def run_contracts(args: argparse.Namespace) -> dict:
             args.sample,
             args.output,
             args.failures,
-            DeepSeekClient(),
+            build_llm_client(args),
             config,
             progress=update_progress,
         )
@@ -259,7 +304,7 @@ def run_queries(args: argparse.Namespace) -> dict:
             args.contracts,
             args.output,
             args.failures,
-            DeepSeekClient(),
+            build_llm_client(args),
             config,
             progress=update_progress,
         )

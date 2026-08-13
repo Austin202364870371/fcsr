@@ -373,6 +373,28 @@ class LLMPreprocessingTests(unittest.TestCase):
         self.assertEqual(second_client.calls, 0)
         self.assertEqual(len(load_jsonl(self.contracts)), 1)
 
+    def test_gzip_contract_output_supports_incremental_resume(self) -> None:
+        contracts = self.root / "contracts.jsonl.gz"
+        failures = self.root / "failures.jsonl.gz"
+        extract_contracts(
+            self.sample,
+            contracts,
+            failures,
+            FakeClient([semantic_contract()]),
+            self.config,
+        )
+
+        summary = extract_contracts(
+            self.sample,
+            contracts,
+            failures,
+            FakeClient([]),
+            self.config,
+        )
+
+        self.assertEqual(summary.skipped, 1)
+        self.assertEqual(len(load_jsonl(contracts)), 1)
+
     def test_contract_progress_reports_each_succeeded_or_skipped_skill(self) -> None:
         write_jsonl_atomic(self.sample, [SKILL, SKILL])
         updates = []
