@@ -11,7 +11,11 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from data_io import stream_jsonl, write_jsonl_atomic
-from generate_multiskill_queries import build_parser, run
+from generate_multiskill_queries import (
+    _select_pilot_candidates,
+    build_parser,
+    run,
+)
 
 
 class FakeClient:
@@ -34,6 +38,30 @@ class GenerateCompositionalQueriesScriptTests(unittest.TestCase):
         self.assertIsNone(parser.parse_args([]).progress)
         self.assertTrue(parser.parse_args(["--progress"]).progress)
         self.assertFalse(parser.parse_args(["--no-progress"]).progress)
+
+    def test_limit_uses_deterministic_type_stratification(self) -> None:
+        candidates = [
+            {
+                "candidate_id": f"pair-{index}",
+                "candidate_type": "pair",
+            }
+            for index in range(8)
+        ] + [
+            {
+                "candidate_id": f"triple-{index}",
+                "candidate_type": "triple",
+            }
+            for index in range(2)
+        ]
+
+        selected = _select_pilot_candidates(candidates, 5)
+
+        self.assertEqual(
+            [item["candidate_id"] for item in selected],
+            ["pair-0", "pair-2", "pair-4", "pair-7", "triple-0"],
+        )
+        self.assertIs(_select_pilot_candidates(candidates, None), candidates)
+
     def test_run_writes_gzip_outputs_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
             root = Path(directory)
@@ -92,6 +120,10 @@ class GenerateCompositionalQueriesScriptTests(unittest.TestCase):
             self.assertEqual(list(stream_jsonl(failures)), [])
             saved_manifest = json.loads(manifest.read_text(encoding="utf-8"))
             self.assertEqual(saved_manifest["status"], "queries_generated")
+            self.assertEqual(
+                saved_manifest["query_generation"]["candidate_types"],
+                {"pair": 1},
+            )
             self.assertEqual(saved_manifest["artifacts"]["queries"]["records"], 1)
 
 

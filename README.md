@@ -117,7 +117,7 @@ python -B scripts/generate_multiskill_queries.py `
   --model deepseek-v4-flash --concurrency 16 --max-attempts 3 --progress
 ```
 
-The generator validates JSON structure, exact positive Skill IDs and order, source hashes, subtask coverage, and the dependency DAG. It writes `queries.jsonl.gz`, `query_failures.jsonl.gz`, and `review_queue.jsonl.gz` under `data/synthetic/multi_skill/`.
+The generator validates JSON structure, exact positive Skill IDs and order, source hashes, subtask coverage, and the dependency DAG. A pilot with `--limit` is stratified by the observed pair/triple proportions and sampled evenly across each type score ranking, so it cannot inspect only the leading pairs. It writes `queries.jsonl.gz`, `query_failures.jsonl.gz`, and `review_queue.jsonl.gz` under `data/synthetic/multi_skill/`.
 
 ### 3. Build Mixed Training Data
 

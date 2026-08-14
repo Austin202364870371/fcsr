@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import itertools
 import json
 import sys
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
@@ -81,11 +81,23 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace, client: CompletionClient | None = None) -> dict[str, Any]:
     _validate_inputs(args)
-    candidates = list(itertools.islice(stream_jsonl(args.candidates), args.limit))
+    candidates = _select_pilot_candidates(
+        list(stream_jsonl(args.candidates)),
+        args.limit,
+    )
+    candidate_types = dict(
+        sorted(
+            Counter(
+                str(item.get("candidate_type", "unknown"))
+                for item in candidates
+            ).items()
+        )
+    )
     if args.dry_run:
         return {
             "dry_run": True,
             "candidates": len(candidates),
+            "candidate_types": candidate_types,
             "contracts": sum(1 for _ in stream_jsonl(args.contracts)),
             "model": args.model,
             "output": args.output.as_posix(),
@@ -124,6 +136,7 @@ def run(args: argparse.Namespace, client: CompletionClient | None = None) -> dic
     review_count = write_jsonl_atomic(args.review_queue, result.review_queue)
     summary = {
         "candidates": len(candidates),
+        "candidate_types": candidate_types,
         "queries": query_count,
         "failures": failure_count,
         "review_queue": review_count,
@@ -133,6 +146,62 @@ def run(args: argparse.Namespace, client: CompletionClient | None = None) -> dic
     }
     _update_manifest(args.manifest, summary, args)
     return summary
+
+
+def _select_pilot_candidates(
+    candidates: list[dict[str, Any]],
+    limit: int | None,
+) -> list[dict[str, Any]]:
+    if limit is None or limit >= len(candidates):
+        return candidates
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for candidate in candidates:
+        groups[str(candidate.get("candidate_type", "unknown"))].append(candidate)
+    if limit < len(groups):
+        return candidates[:limit]
+
+    total = len(candidates)
+    exact = {
+        kind: limit * len(records) / total
+        for kind, records in groups.items()
+    }
+    allocation = {
+        kind: max(1, int(exact[kind]))
+        for kind in groups
+    }
+    while sum(allocation.values()) < limit:
+        kind = max(
+            (value for value in groups if allocation[value] < len(groups[value])),
+            key=lambda value: (
+                exact[value] - allocation[value],
+                len(groups[value]) - allocation[value],
+                value,
+            ),
+        )
+        allocation[kind] += 1
+    while sum(allocation.values()) > limit:
+        kind = min(
+            (value for value in groups if allocation[value] > 1),
+            key=lambda value: (
+                exact[value] - allocation[value],
+                value,
+            ),
+        )
+        allocation[kind] -= 1
+
+    selected: list[dict[str, Any]] = []
+    for kind in sorted(groups):
+        records = groups[kind]
+        count = min(allocation[kind], len(records))
+        if count == 1:
+            selected.append(records[0])
+            continue
+        indices = [
+            index * (len(records) - 1) // (count - 1)
+            for index in range(count)
+        ]
+        selected.extend(records[index] for index in indices)
+    return selected
 
 
 def _create_progress_callback(

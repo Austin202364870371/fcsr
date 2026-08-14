@@ -114,7 +114,7 @@ python -B scripts/generate_multiskill_queries.py `
   --model deepseek-v4-flash --concurrency 16 --max-attempts 3 --progress
 ```
 
-生成器会校验 JSON 结构、正例 Skill ID 及顺序、source hash、子任务覆盖和依赖 DAG。结果写入 `data/synthetic/multi_skill/` 下的 `queries.jsonl.gz`、`query_failures.jsonl.gz` 与 `review_queue.jsonl.gz`。
+生成器会校验 JSON 结构、正例 Skill ID 及顺序、source hash、子任务覆盖和依赖 DAG。设置 `--limit` 的 pilot 会按 pair/triple 实际比例分层，并在各类型的分数排序中均匀抽样，避免只审核文件头部的 pair。结果写入 `data/synthetic/multi_skill/` 下的 `queries.jsonl.gz`、`query_failures.jsonl.gz` 与 `review_queue.jsonl.gz`。
 
 ### 3. 构建混合训练集
 
