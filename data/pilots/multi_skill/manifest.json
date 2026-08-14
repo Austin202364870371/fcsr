@@ -1,0 +1,37 @@
+{
+  "status": "queries_generated_with_failures",
+  "query_generation": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinking": "disabled",
+    "concurrency": 16,
+    "temperature": 0.2,
+    "max_new_tokens": 1024,
+    "max_attempts": 3,
+    "min_query_words": 30,
+    "max_query_words": 260,
+    "limit": 50,
+    "candidates": 50,
+    "contracts": "/data-nfs/gpu3/u13256401368/fcsr/data/contracts/contracts.jsonl.gz",
+    "queries": 49,
+    "failures": 1,
+    "review_queue": 2,
+    "output": "/data-nfs/gpu3/u13256401368/fcsr/data/pilots/multi_skill/queries.jsonl.gz",
+    "failures_output": "/data-nfs/gpu3/u13256401368/fcsr/data/pilots/multi_skill/query_failures.jsonl.gz",
+    "review_queue_output": "/data-nfs/gpu3/u13256401368/fcsr/data/pilots/multi_skill/review_queue.jsonl.gz"
+  },
+  "artifacts": {
+    "queries": {
+      "path": "queries.jsonl.gz",
+      "records": 49
+    },
+    "query_failures": {
+      "path": "query_failures.jsonl.gz",
+      "records": 1
+    },
+    "review_queue": {
+      "path": "review_queue.jsonl.gz",
+      "records": 2
+    }
+  }
+}

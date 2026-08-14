@@ -115,6 +115,84 @@ class CompositionalCandidateTests(unittest.TestCase):
             item for item in result.rejections if item["skill_ids"] == ["a", "b"]
         )
         self.assertEqual(rejection["reasons"], ["weak_artifact_handoff"])
+
+    def test_accepts_phrase_containment_and_explicit_identifiers(self):
+        contracts = [
+            contract(
+                "phrase-producer",
+                "hash-phrase-producer",
+                ["OpenAPI specification"],
+                [],
+                ["generate"],
+            ),
+            contract(
+                "phrase-consumer",
+                "hash-phrase-consumer",
+                [],
+                ["versioned signed OpenAPI specification deployment bundle"],
+                ["validate"],
+            ),
+            contract(
+                "identifier-producer",
+                "hash-identifier-producer",
+                ["Dockerfile"],
+                [],
+                ["write"],
+            ),
+            contract(
+                "identifier-consumer",
+                "hash-identifier-consumer",
+                [],
+                ["production Dockerfile"],
+                ["audit"],
+            ),
+        ]
+        contracts[2]["outputs"][0]["format"] = "dockerfile"
+        contracts[3]["inputs"][0]["format"] = "dockerfile"
+        queries = [
+            {"positive_skill_id": item["skill_id"], "source_hash": item["source_hash"]}
+            for item in contracts
+        ]
+
+        result = build_compositional_candidates(
+            contracts,
+            queries,
+            set(),
+            CandidateSettings(max_pairs=10, max_triples=10, max_pairs_per_source=10),
+        )
+
+        self.assertIn(
+            ["phrase-producer", "phrase-consumer"],
+            [item["skill_ids"] for item in result.pairs],
+        )
+        self.assertIn(
+            ["identifier-producer", "identifier-consumer"],
+            [item["skill_ids"] for item in result.pairs],
+        )
+
+    def test_rejects_uncorroborated_single_identifier(self):
+        contracts = [
+            contract("a", "hash-a", ["Dockerfile"], [], ["write"]),
+            contract("b", "hash-b", [], ["production Dockerfile"], ["audit"]),
+        ]
+        queries = [
+            {"positive_skill_id": item["skill_id"], "source_hash": item["source_hash"]}
+            for item in contracts
+        ]
+
+        result = build_compositional_candidates(
+            contracts,
+            queries,
+            set(),
+            CandidateSettings(max_pairs=10, max_triples=10, max_pairs_per_source=10),
+        )
+
+        self.assertEqual(result.pairs, [])
+        rejection = next(
+            item for item in result.rejections if item["skill_ids"] == ["a", "b"]
+        )
+        self.assertEqual(rejection["reasons"], ["weak_artifact_handoff"])
+
     def test_run_writes_gzip_artifacts_and_updates_manifest(self):
         contracts = [
             contract("a", "hash-a", ["OpenAPI specification"], [], ["generate"]),

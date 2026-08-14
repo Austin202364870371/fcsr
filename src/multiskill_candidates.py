@@ -273,10 +273,22 @@ def _qualified_artifact_handoffs(
             overlap = output & required_input
             if not overlap:
                 continue
-            union = output | required_input
-            if output == required_input or (
-                len(overlap) >= 2 and len(overlap) / len(union) >= 0.5
-            ):
+            shorter_size = min(len(output), len(required_input))
+            phrase_containment = (
+                len(overlap) >= 2
+                and len(overlap) / shorter_size >= 0.5
+            )
+            identifier = next(iter(overlap)) if len(overlap) == 1 else ""
+            explicit_identifier = (
+                bool(identifier)
+                and shorter_size == 1
+                and len(identifier) >= 4
+                and (
+                    identifier in target.dependency_tokens
+                    or bool(source.output_formats & target.input_formats)
+                )
+            )
+            if output == required_input or phrase_containment or explicit_identifier:
                 matches.append(overlap)
     return tuple(matches)
 

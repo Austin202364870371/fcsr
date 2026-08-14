@@ -104,7 +104,7 @@ python -B scripts/build_single_skill_data.py semantic-negatives `
 
 ### 2. 多 Skill 数据
 
-候选构建阶段不调用 LLM。只有当有效 Contract、非 benchmark Skill、artifact 交接和操作互补共同成立时，才保留有序 pair 或 triple。
+候选构建阶段不调用 LLM。只有当有效 Contract、非 benchmark Skill、artifact 交接和操作互补共同成立时，才保留有序 pair 或 triple。artifact 交接允许精确短语、至少两个实质词的短语包含关系，或由单一稀有标识符与匹配格式/依赖共同连接的输入输出；仅共享一个宽泛词仍会被拒绝。
 
 ```powershell
 python -B scripts/build_multiskill_candidates.py

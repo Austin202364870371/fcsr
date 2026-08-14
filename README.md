@@ -107,7 +107,7 @@ directly trainable bi-encoder and reranker records.
 
 ### 2. Build Multi-Skill Data
 
-Candidate construction does not call an LLM. A candidate is retained only when valid Contracts, non-benchmark Skills, artifact handoff, and complementary operations support the ordered pair or triple.
+Candidate construction does not call an LLM. A candidate is retained only when valid Contracts, non-benchmark Skills, artifact handoff, and complementary operations support the ordered pair or triple. Artifact handoffs may use exact phrases, containment with at least two substantive tokens, or a single rare identifier corroborated by a matching format or dependency; a lone loose token remains insufficient.
 
 ```powershell
 python -B scripts/build_multiskill_candidates.py
