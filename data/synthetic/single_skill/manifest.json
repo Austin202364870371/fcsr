@@ -1,14 +1,45 @@
 {
     "schema_version": "synthetic_single_skill_manifest",
-    "status": "awaiting_query_generation",
+    "status": "query_generation_completed_negatives_pending",
     "task_type": "single_skill",
-    "source_contract_dataset": "data/contracts/contracts.jsonl.gz",
+    "source_contract_dataset": {
+        "path": "data/contracts/contracts.jsonl.gz",
+        "records": 31977,
+        "sha256": "329c01175735f5d4532ded5d942a00fc636299241496bbb30ce9deb5d2b5dd84"
+    },
     "generation": {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
         "thinking": "disabled",
         "json_output": true,
-        "concurrency": 16
+        "concurrency": 16,
+        "prompt_version": "contract_query_prompt_007",
+        "max_attempts": 3,
+        "max_output_tokens": 1024,
+        "word_limit": {
+            "minimum": 80,
+            "maximum": 180
+        }
+    },
+    "counts": {
+        "sample_skills": 32000,
+        "source_contracts": 31977,
+        "queries": 31902,
+        "failure_records": 98,
+        "generation_failures": 75,
+        "missing_contracts": 23
+    },
+    "failure_types": {
+        "word_count": 60,
+        "explicit_skill_label_reference": 15,
+        "missing_contract": 23,
+        "api_or_network": 0,
+        "json_or_schema": 0
+    },
+    "successful_query_attempts": {
+        "1": 31316,
+        "2": 540,
+        "3": 46
     },
     "negative_mining": {
         "sources": {
@@ -24,11 +55,16 @@
     "artifacts": {
         "queries": {
             "path": "queries.jsonl.gz",
-            "records": null
+            "records": 31902,
+            "bytes": 22041177,
+            "sha256": "82bb792a0c534f3285634fb8cb14ec1ac7202a594258a5f8f01eaea1c2d86da7"
         },
         "query_failures": {
             "path": "query_failures.jsonl.gz",
-            "records": null
+            "records": 98,
+            "unique_skill_ids": 98,
+            "bytes": 72602,
+            "sha256": "083007a6eea325b26b0e513b0d9c12162718fc12bfe39187e5d0a5306304668d"
         },
         "local_negatives": {
             "path": "local_negatives.jsonl.gz",
@@ -46,5 +82,16 @@
             "path": "train_reranker.jsonl.gz",
             "records": null
         }
-    }
+    },
+    "slurm_jobs": [
+        {
+            "job_id": 54641,
+            "state": "COMPLETED",
+            "elapsed": "01:12:50",
+            "attempted": 32000,
+            "succeeded": 31902,
+            "failed": 98,
+            "exit_code": "0:0"
+        }
+    ]
 }
