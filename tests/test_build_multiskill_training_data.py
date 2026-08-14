@@ -20,7 +20,7 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
 
         self.assertEqual(args.biencoder_multi_loss_weight, 1.5)
         self.assertEqual(args.reranker_multi_loss_weight, 3.0)
-        self.assertEqual(args.output_dir, Path("data/training/mixed"))
+        self.assertEqual(args.output_dir, Path("data/training"))
         self.assertEqual(args.semantic_top_k, 64)
         self.assertIsNone(args.semantic_review)
 

@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
     parser.add_argument(
         "--train-data",
-        default="data/training/mixed/biencoder.jsonl.gz",
+        default="data/training/biencoder.jsonl.gz",
     )
     parser.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     parser.add_argument("--model")

@@ -28,8 +28,7 @@ data/
   synthetic/
     single_skill/                单 Skill 查询、负例及 manifest
     multi_skill/                 候选、查询及 manifest
-  training/
-    mixed/                       单遍、按类型加权的混合训练数据
+  training/                      单遍、按类型加权的混合训练数据
 docs/                            研究问题说明与参考文献
 jobs/                            Slurm 任务模板
 scripts/
@@ -120,7 +119,7 @@ pair/triple 在 Bi-Encoder 中仍按不同正例 Skill 各展开一条，这是�
 不是重复采样；Reranker 仍是一条 query 对应一个多标签 group。负例只从 Easy pool
 挖掘，并排除全部正例 Skill ID。语义 Top-64 候选还会逐一与每个正例 Skill 比较，
 按 `0.95` 阈值过滤，并把删除项写入
-`data/training/mixed/semantic_fn_review.jsonl.gz`。每个 epoch 会把单、多 Skill
+`data/training/semantic_fn_review.jsonl.gz`。每个 epoch 会把单、多 Skill
 样本整体打乱交错训练。
 
 默认对多 Skill Bi-Encoder 样本使用 `1.5` 损失权重，对多 Skill Reranker group
@@ -132,7 +131,7 @@ python -B scripts/build_multiskill_training_data.py \
   --negative-model models/Qwen3-Embedding-0.6B \
   --biencoder-multi-loss-weight 1.5 \
   --reranker-multi-loss-weight 3.0 \
-  --output-dir data/training/mixed
+  --output-dir data/training
 ```
 
 ## 模型训练
@@ -141,13 +140,13 @@ python -B scripts/build_multiskill_training_data.py \
 
 ```bash
 python -B scripts/train_biencoder.py \
-  --train-data data/training/mixed/biencoder.jsonl.gz \
+  --train-data data/training/biencoder.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Embedding-0.6B \
   --output-dir checkpoints/fcsr-emb-0.6b-multiskill-weighted
 
 python -B scripts/train_reranker.py train \
-  --groups data/training/mixed/reranker.jsonl.gz \
+  --groups data/training/reranker.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Reranker-0.6B \
   --output-dir checkpoints/fcsr-rank-0.6b-multiskill-weighted

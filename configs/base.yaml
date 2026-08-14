@@ -21,9 +21,9 @@ data:
   multiskill_queries: data/synthetic/multi_skill/queries.jsonl.gz
   multiskill_query_failures: data/synthetic/multi_skill/query_failures.jsonl.gz
   multiskill_review_queue: data/synthetic/multi_skill/review_queue.jsonl.gz
-  weighted_biencoder_train: data/training/mixed/biencoder.jsonl.gz
-  weighted_reranker_train: data/training/mixed/reranker.jsonl.gz
-  weighted_semantic_fn_review: data/training/mixed/semantic_fn_review.jsonl.gz
+  weighted_biencoder_train: data/training/biencoder.jsonl.gz
+  weighted_reranker_train: data/training/reranker.jsonl.gz
+  weighted_semantic_fn_review: data/training/semantic_fn_review.jsonl.gz
 contracts:
   schema_version: contract_v2
   canonical_language: en

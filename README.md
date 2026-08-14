@@ -28,8 +28,7 @@ data/
   synthetic/
     single_skill/                Single-skill queries, negatives, and manifest
     multi_skill/                 Validated candidates, queries, and manifest
-  training/
-    mixed/                       Single-pass, type-weighted mixed training data
+  training/                      Single-pass, type-weighted mixed training data
 docs/                            Research-question notes and references
 jobs/                            Slurm job templates
 scripts/
@@ -124,7 +123,7 @@ positive Skill because each positive label must be trained once. The reranker ke
 same query as one multi-label group. Negatives come only from the Easy pool and exclude
 every positive Skill ID. Semantic Top-64 candidates are also compared against every
 positive Skill at the `0.95` threshold; removals are saved to
-`data/training/mixed/semantic_fn_review.jsonl.gz`. Each epoch shuffles all single- and
+`data/training/semantic_fn_review.jsonl.gz`. Each epoch shuffles all single- and
 multi-Skill records together.
 
 The default type weights are `1.5` for multi-Skill bi-encoder records and `3.0` for
@@ -138,7 +137,7 @@ python -B scripts/build_multiskill_training_data.py \
   --negative-model models/Qwen3-Embedding-0.6B \
   --biencoder-multi-loss-weight 1.5 \
   --reranker-multi-loss-weight 3.0 \
-  --output-dir data/training/mixed
+  --output-dir data/training
 ```
 
 ## Training
@@ -147,13 +146,13 @@ The following commands use local Hugging Face model directories and produce clea
 
 ```bash
 python -B scripts/train_biencoder.py \
-  --train-data data/training/mixed/biencoder.jsonl.gz \
+  --train-data data/training/biencoder.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Embedding-0.6B \
   --output-dir checkpoints/fcsr-emb-0.6b-multiskill-weighted
 
 python -B scripts/train_reranker.py train \
-  --groups data/training/mixed/reranker.jsonl.gz \
+  --groups data/training/reranker.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Reranker-0.6B \
   --output-dir checkpoints/fcsr-rank-0.6b-multiskill-weighted

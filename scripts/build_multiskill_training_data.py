@@ -23,7 +23,7 @@ from retrieval import embedding_false_negative_filter, semantic_topk
 from multiskill_training_data import build_mixed_training_records
 
 
-DEFAULT_OUTPUT_DIR = Path("data/training/mixed")
+DEFAULT_OUTPUT_DIR = Path("data/training")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -298,7 +298,7 @@ def build_manifest(
     counts: dict[str, int],
     semantic_fn_threshold: float = 0.95,
     semantic_review_path: Path = Path(
-        "data/training/mixed/semantic_fn_review.jsonl.gz"
+        "data/training/semantic_fn_review.jsonl.gz"
     ),
 ) -> dict[str, Any]:
     return {

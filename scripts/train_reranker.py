@@ -162,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     train = commands.add_parser("train", help="train Qwen3-Reranker listwise")
     train.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
     train.add_argument(
-        "--groups", default="data/training/mixed/reranker.jsonl.gz"
+        "--groups", default="data/training/reranker.jsonl.gz"
     )
     train.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
     train.add_argument("--model")

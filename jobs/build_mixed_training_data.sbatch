@@ -13,7 +13,7 @@
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/training/mixed}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/training}"
 MODEL_DIR="${MODEL_DIR:-$PROJECT_DIR/models/Qwen3-Embedding-0.6B}"
 
 cd "$PROJECT_DIR"

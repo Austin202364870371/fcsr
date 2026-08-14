@@ -30,7 +30,7 @@
 
 旧版 8k 运行曾得到 497 个有向 pair、51 个 triple，并有 541/548 条 query 通过严格结构校验；这些数字只作为历史产出率参考。当前 `data/synthetic/multi_skill/` 尚未生成候选和 query，应在当前单 Skill query 完成后重新构建。
 
-mixed 数据不复制多 Skill query。每条组合任务在 Reranker 中只出现一次；在 Bi-Encoder 中按每个不同正例 Skill 各展开一次，并保留完整 `positive_skill_ids`。所有正例都从负例中排除。多 Skill 语义挖掘使用本地 Qwen Top-64，候选若与任一正例的余弦相似度 `>= 0.95` 即被过滤，并写入 `data/training/mixed/semantic_fn_review.jsonl.gz`。默认多 Skill损失权重为 Bi-Encoder `1.5`、Reranker `3.0`，每个 epoch 对全部类型整体打乱。
+mixed 数据不复制多 Skill query。每条组合任务在 Reranker 中只出现一次；在 Bi-Encoder 中按每个不同正例 Skill 各展开一次，并保留完整 `positive_skill_ids`。所有正例都从负例中排除。多 Skill 语义挖掘使用本地 Qwen Top-64，候选若与任一正例的余弦相似度 `>= 0.95` 即被过滤，并写入 `data/training/semantic_fn_review.jsonl.gz`。默认多 Skill 损失权重为 Bi-Encoder `1.5`、Reranker `3.0`，每个 epoch 对全部类型整体打乱。
 
 ## 数据比例与训练策略
 
@@ -50,7 +50,7 @@ mixed 数据不复制多 Skill query。每条组合任务在 Reranker 中只出�
 2. 挖掘局部与语义负例，执行两层 FN 过滤，审计 `semantic_fn_review.jsonl.gz`，再构建单 Skill Reranker group。
 3. 基于当前 Contract 与单 Skill query 重新构建多 Skill pair/triple 候选。
 4. 先运行 50 条多 Skill DeepSeek pilot，审计通过后再以 16 路并发执行全量生成。
-5. 挖掘多 Skill负例、对全部正例做 FN 过滤，并构建 `data/training/mixed/`。
+5. 挖掘多 Skill 负例、对全部正例做 FN 过滤，并构建 `data/training/`。
 6. 在相同 epoch、随机种子、底座模型和候选池下比较单 Skill、`1.0/1.0`、`1.5/3.0` 与更强权重设置。
 7. 将任务级结果和冻结配置写入 `reports/` 后再给出结论。
 
