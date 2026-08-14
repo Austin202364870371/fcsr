@@ -71,6 +71,9 @@ disabled and JSON Output enabled. Copy `.env.example` to `.env`, set
 Skill per request and maintains a bounded pool of 16 concurrent requests. Single- and
 multi-Skill query generation use the same continuously refilled request pool; a retry
 occupies only the failed item's worker and never replays a successful item.
+Single-Skill query prompting targets 110-140 words inside the hard 80-180-word
+validation window and supplies the exact source Skill name only as forbidden negative
+metadata. Final query failures preserve the rejected response for diagnosis.
 
 ## Data Pipeline
 
