@@ -23,7 +23,7 @@ from retrieval import embedding_false_negative_filter, semantic_topk
 from multiskill_training_data import build_mixed_training_records
 
 
-DEFAULT_OUTPUT_DIR = Path("data/training/multiskill_weighted")
+DEFAULT_OUTPUT_DIR = Path("data/training/mixed")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,18 +33,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--single-biencoder",
         type=Path,
-        default=Path("data/synthetic/single_skill_v1/train_biencoder.jsonl.gz"),
+        default=Path("data/synthetic/single_skill/train_biencoder.jsonl.gz"),
     )
     parser.add_argument(
         "--single-reranker",
         type=Path,
-        default=Path("data/synthetic/single_skill_v1/train_reranker.jsonl.gz"),
+        default=Path("data/synthetic/single_skill/train_reranker.jsonl.gz"),
     )
     parser.add_argument(
         "--multiskill-queries",
         dest="multiskill_queries",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/queries.jsonl.gz"),
+        default=Path("data/synthetic/multi_skill/queries.jsonl.gz"),
     )
     parser.add_argument(
         "--skills",
@@ -66,6 +66,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--query-max-length", type=int, default=512)
     parser.add_argument("--skill-max-length", type=int, default=2048)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--semantic-review",
+        type=Path,
+        help=(
+            "optional path for semantic candidates removed as likely false negatives; "
+            "defaults to <output-dir>/semantic_fn_review.jsonl.gz"
+        ),
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-progress", action="store_true")
     return parser
@@ -74,6 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     _validate_inputs(args)
     outputs = _output_paths(args.output_dir)
+    if args.semantic_review is not None:
+        outputs["semantic_fn_review"] = args.semantic_review
     _validate_outputs(outputs, args.overwrite)
 
     single_biencoder = list(stream_jsonl(args.single_biencoder))
@@ -81,6 +91,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     multiskill_queries = list(stream_jsonl(args.multiskill_queries))
     skills = list(stream_jsonl(args.skills))
     _validate_unique_query_ids(multiskill_queries)
+    semantic_review_records: list[dict[str, Any]] = []
     semantic_candidates = mine_semantic_candidates(
         multiskill_queries,
         skills,
@@ -92,6 +103,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         skill_max_length=args.skill_max_length,
         device=args.device,
         show_progress=not args.no_progress,
+        semantic_review_records=semantic_review_records,
     )
     with _progress(
         len(multiskill_queries), "Building multi-Skill records", "query", args.no_progress
@@ -109,6 +121,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         )
     biencoder_count = write_jsonl_atomic(outputs["biencoder"], result.biencoder_records)
     reranker_count = write_jsonl_atomic(outputs["reranker"], result.reranker_groups)
+    semantic_review_count = write_jsonl_atomic(
+        outputs["semantic_fn_review"], semantic_review_records
+    )
     counts = {
         "single_biencoder": len(single_biencoder),
         "single_reranker": len(single_reranker),
@@ -117,6 +132,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "multiskill_reranker_groups": result.compositional_reranker_groups,
         "biencoder_records": biencoder_count,
         "reranker_groups": reranker_count,
+        "multiskill_semantic_fn_removed": semantic_review_count,
     }
     manifest = build_manifest(
         single_biencoder_path=args.single_biencoder,
@@ -130,6 +146,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         reranker_multi_loss_weight=args.reranker_multi_loss_weight,
         seed=args.seed,
         counts=counts,
+        semantic_review_path=outputs["semantic_fn_review"],
     )
     outputs["manifest"].write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
@@ -140,6 +157,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "biencoder_output": outputs["biencoder"].as_posix(),
         "reranker_output": outputs["reranker"].as_posix(),
         "manifest_output": outputs["manifest"].as_posix(),
+        "semantic_review_output": outputs["semantic_fn_review"].as_posix(),
     }
 
 
@@ -155,6 +173,7 @@ def mine_semantic_candidates(
     skill_max_length: int,
     device: str,
     show_progress: bool,
+    semantic_review_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     if semantic_top_k <= 0:
         raise ValueError("semantic_top_k must be positive")
@@ -219,6 +238,8 @@ def mine_semantic_candidates(
             skill_embeddings,
             index_by_id,
             threshold=semantic_fn_threshold,
+            query_id=query_id,
+            review_records=semantic_review_records,
         )
     return candidates
 
@@ -230,6 +251,8 @@ def filter_semantic_false_negatives(
     index_by_id: dict[str, int],
     *,
     threshold: float,
+    query_id: str | None = None,
+    review_records: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Drop candidates highly similar to any true Skill in a composition."""
     if not -1 <= threshold <= 1:
@@ -249,6 +272,15 @@ def filter_semantic_false_negatives(
             candidate_embeddings,
             threshold,
         )
+        if review_records is not None:
+            review_records.extend(
+                {
+                    "query_id": query_id,
+                    "positive_skill_id": positive_id,
+                    **item,
+                }
+                for item in filtered.removed
+            )
         kept = filtered.kept
     return kept
 
@@ -265,6 +297,9 @@ def build_manifest(
     seed: int,
     counts: dict[str, int],
     semantic_fn_threshold: float = 0.95,
+    semantic_review_path: Path = Path(
+        "data/training/mixed/semantic_fn_review.jsonl.gz"
+    ),
 ) -> dict[str, Any]:
     return {
         "schema_version": "multiskill_training_v2",
@@ -295,6 +330,10 @@ def build_manifest(
         "outputs": {
             "biencoder": {"path": "biencoder.jsonl.gz", "records": counts["biencoder_records"]},
             "reranker": {"path": "reranker.jsonl.gz", "records": counts["reranker_groups"]},
+            "semantic_fn_review": {
+                "path": semantic_review_path.name,
+                "records": counts.get("multiskill_semantic_fn_removed", 0),
+            },
         },
     }
 
@@ -304,6 +343,7 @@ def _output_paths(output_dir: Path) -> dict[str, Path]:
         "biencoder": output_dir / "biencoder.jsonl.gz",
         "reranker": output_dir / "reranker.jsonl.gz",
         "manifest": output_dir / "manifest.json",
+        "semantic_fn_review": output_dir / "semantic_fn_review.jsonl.gz",
     }
 
 

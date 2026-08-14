@@ -21,13 +21,15 @@ Contracts are used only to construct auditable training data. At inference time,
 ```text
 configs/                         Shared model and data defaults
 data/
-  contracts/                     Sampled Skills and extracted Contracts
+  samples/                       Flat sample files and sample manifest
+  contracts/                     Extracted Contracts, failures, and manifest
   raw/                           Skill pools and public evaluation tasks
+  pilots/                        Isolated pilot outputs
   synthetic/
-    single_skill_v1/             Single-skill queries and training records
-    multiskill_v1/               Validated candidates, LLM queries, and manifests
+    single_skill/                Single-skill queries, negatives, and manifest
+    multi_skill/                 Validated candidates, queries, and manifest
   training/
-    multiskill_weighted/         Single-pass, type-weighted mixed data (ignored by Git)
+    mixed/                       Single-pass, type-weighted mixed training data
 docs/                            Research-question notes and references
 jobs/                            Slurm job templates
 scripts/
@@ -43,7 +45,9 @@ src/                             Reusable implementation modules
 tests/                           Offline regression tests
 ```
 
-Large datasets, model files, checkpoints, logs, caches, and generated reports are intentionally ignored by Git. Tracked `manifest.json` files record the version, inputs, parameters, and counts of generated datasets.
+`data/samples/` is intentionally flat: `sample_skills.jsonl.gz` and
+`manifest.json` live directly in it. Git tracks every `data/**/manifest.json`, while
+large datasets, models, checkpoints, logs, caches, and generated reports stay ignored.
 
 ## Setup
 
@@ -76,12 +80,12 @@ occupies only the failed item's worker and never replays a successful item.
 ```powershell
 # Benchmark-safe 32k Contract sample, then evidence-grounded Contracts.
 python -B scripts/build_single_skill_data.py sample `
-  --sample-size 32000 --output-dir data/contracts_32k --overwrite
+  --sample-size 32000 --output-dir data/samples --overwrite
 python -B scripts/build_single_skill_data.py contracts `
   --model deepseek-v4-flash --concurrency 16 `
-  --sample data/contracts_32k/sample_skills.jsonl.gz `
-  --output data/contracts_32k_prompt007/contracts.jsonl.gz `
-  --failures data/contracts_32k_prompt007/failures.jsonl.gz
+  --sample data/samples/sample_skills.jsonl.gz `
+  --output data/contracts/contracts.jsonl.gz `
+  --failures data/contracts/failures.jsonl.gz
 
 # Contract-grounded queries, local negatives, then GPU semantic negatives.
 python -B scripts/build_single_skill_data.py queries
@@ -90,7 +94,13 @@ python -B scripts/build_single_skill_data.py semantic-negatives `
   --model models/Qwen3-Embedding-0.6B --device cuda --overwrite
 ```
 
-The resulting single-skill data is stored in `data/synthetic/single_skill_v1/`.
+The resulting single-skill data is stored in `data/synthetic/single_skill/`.
+Local mining combines BM25, same-category, and random candidates, then removes identity,
+normalized-name, exact-body, and high trigram-overlap false negatives. GPU semantic
+mining uses local Qwen3 Embedding Top-50 retrieval and removes candidates whose cosine
+similarity to the positive Skill is at least `0.95`. Removed candidates are retained
+for audit in `semantic_fn_review.jsonl.gz`; the filtered data is then converted into
+directly trainable bi-encoder and reranker records.
 
 ### 2. Build Multi-Skill Data
 
@@ -104,15 +114,18 @@ python -B scripts/generate_multiskill_queries.py `
   --model deepseek-v4-flash --concurrency 16 --max-attempts 3 --progress
 ```
 
-The generator validates JSON structure, exact positive Skill IDs and order, source hashes, subtask coverage, and the dependency DAG. It writes `queries.jsonl.gz`, `failures.jsonl.gz`, and `review_queue.jsonl.gz` under `data/synthetic/multiskill_v1/`.
+The generator validates JSON structure, exact positive Skill IDs and order, source hashes, subtask coverage, and the dependency DAG. It writes `queries.jsonl.gz`, `query_failures.jsonl.gz`, and `review_queue.jsonl.gz` under `data/synthetic/multi_skill/`.
 
 ### 3. Build Mixed Training Data
 
-`multiskill_weighted` stores every original query/group exactly once; there are no
+`mixed` stores every original query/group exactly once; there are no
 threefold copies. A pair or triple still produces one bi-encoder record per distinct
 positive Skill because each positive label must be trained once. The reranker keeps the
 same query as one multi-label group. Negatives come only from the Easy pool and exclude
-every positive Skill ID. Each epoch shuffles all single- and multi-Skill records together.
+every positive Skill ID. Semantic Top-64 candidates are also compared against every
+positive Skill at the `0.95` threshold; removals are saved to
+`data/training/mixed/semantic_fn_review.jsonl.gz`. Each epoch shuffles all single- and
+multi-Skill records together.
 
 The default type weights are `1.5` for multi-Skill bi-encoder records and `3.0` for
 multi-Skill reranker groups. They keep the on-disk distribution natural while raising
@@ -125,7 +138,7 @@ python -B scripts/build_multiskill_training_data.py \
   --negative-model models/Qwen3-Embedding-0.6B \
   --biencoder-multi-loss-weight 1.5 \
   --reranker-multi-loss-weight 3.0 \
-  --output-dir data/training/multiskill_weighted
+  --output-dir data/training/mixed
 ```
 
 ## Training
@@ -134,21 +147,21 @@ The following commands use local Hugging Face model directories and produce clea
 
 ```bash
 python -B scripts/train_biencoder.py \
-  --train-data data/training/multiskill_weighted/biencoder.jsonl.gz \
+  --train-data data/training/mixed/biencoder.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Embedding-0.6B \
   --output-dir checkpoints/fcsr-emb-0.6b-multiskill-weighted
 
 python -B scripts/train_reranker.py train \
-  --groups data/training/multiskill_weighted/reranker.jsonl.gz \
+  --groups data/training/mixed/reranker.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Reranker-0.6B \
   --output-dir checkpoints/fcsr-rank-0.6b-multiskill-weighted
 ```
 
 For the single-skill baseline, omit the mixed build step and explicitly pass
-`data/synthetic/single_skill_v1/train_biencoder.jsonl.gz` or
-`data/synthetic/single_skill_v1/train_reranker.jsonl.gz`, with checkpoint names
+`data/synthetic/single_skill/train_biencoder.jsonl.gz` or
+`data/synthetic/single_skill/train_reranker.jsonl.gz`, with checkpoint names
 `fcsr-emb-0.6b-single` and `fcsr-rank-0.6b-single`.
 
 ## Evaluation
@@ -205,7 +218,7 @@ sbatch jobs/extract_contracts_deepseek_pilot.sbatch
 After auditing the pilot, submit the separate formal job for all 32,000 Skills:
 
 ```bash
-sbatch jobs/extract_contracts_deepseek_32k.sbatch
+sbatch jobs/extract_contracts_deepseek.sbatch
 ```
 
 Each request contains one Skill; `CONCURRENCY=16` controls only how many independent
@@ -223,24 +236,41 @@ steps and user requests are not preconditions; near-duplicate constraints and qu
 criteria are collapsed. Contract responses allow up to 6,144 output tokens. Terminal failures
 record the last raw response and provider `finish_reason` when available, which makes
 truncation distinguishable from malformed JSON. The formal output is
-`data/contracts_32k_prompt007/contracts.jsonl.gz`.
+`data/contracts/contracts.jsonl.gz`.
 
-The multi-Skill API generation template is
-[jobs/generate_multiskill_deepseek.sbatch](jobs/generate_multiskill_deepseek.sbatch):
+The remaining build is submitted in dependency order:
 
 ```bash
+# 1. DeepSeek single-Skill queries (16 concurrent requests).
+sbatch jobs/generate_single_skill_deepseek.sbatch
+
+# 2. Local negatives and local false-negative filtering.
+sbatch jobs/mine_single_skill_local_negatives.sbatch
+
+# 3. Qwen semantic negatives and semantic false-negative filtering.
+sbatch jobs/mine_single_skill_semantic_negatives.sbatch
+
+# 4. Convert filtered single-Skill records into reranker groups.
+sbatch jobs/prepare_single_skill_reranker.sbatch
+
+# 5. Build Contract-validated multi-Skill candidates.
+sbatch jobs/build_multi_skill_candidates.sbatch
+
+# 6. Audit a 50-candidate DeepSeek pilot.
 sbatch jobs/generate_multiskill_deepseek.sbatch
+
+# 7. Generate all validated multi-Skill queries after pilot review.
+sbatch --export=ALL,FULL_RUN=1 jobs/generate_multiskill_deepseek.sbatch
+
+# 8. Mine multi-Skill negatives, filter false negatives, and build mixed data.
+sbatch jobs/build_mixed_training_data.sbatch
 ```
 
-The full single-Skill query job is:
-
-```bash
-sbatch jobs/generate_single_skill_deepseek_32k.sbatch
-```
-
-Both templates default to 16 independent requests in flight. The multi-Skill template
-defaults to a 50-candidate pilot; submit the full candidate file with
-`sbatch --export=ALL,FULL_RUN=1 jobs/generate_multiskill_deepseek.sbatch`.
+The two DeepSeek query jobs use `deepseek-v4-flash`, JSON Output, disabled thinking,
+one item per request, and 16 requests in flight. The negative-mining and training-data
+jobs use only local Qwen models. Add Slurm `afterok` dependencies when submitting the
+sequence together; do not start a downstream stage before its manifest and artifacts
+have been audited.
 
 ## Why Weighted Mixing Instead of 3x Copies
 
@@ -264,30 +294,6 @@ and [Improving Multitask Retrieval by Promoting Task
 Specialization](https://aclanthology.org/2023.tacl-1.68/). The default weights are an
 FCSR engineering choice and should be compared against `1.0/1.0` and at least one
 stronger weighting setting under the same epoch and seed budget.
-
-## Migrating Existing Local or Server Data
-
-Older local data may use the paths below. After `git pull`, merge only ignored data
-files into the renamed synthetic directories. The weighted mixed-training schema is
-new and must be rebuilt rather than obtained by renaming old 3x records:
-
-```bash
-rsync -a --exclude manifest.json data/synthetic/single_v1/ \
-  data/synthetic/single_skill_v1/
-rsync -a --exclude manifest.json data/synthetic/compositional_v1/ \
-  data/synthetic/multiskill_v1/
-mv data/synthetic/multiskill_v1/compositional_queries.jsonl.gz \
-  data/synthetic/multiskill_v1/queries.jsonl.gz
-# Rebuild mixed data with the weighted builder; do not rename old 3x records.
-mv data/processed/contract_fn_review.jsonl.gz \
-  data/processed/semantic_negative_review.jsonl.gz
-mv data/processed/synthetic_top20.json \
-  data/processed/single_skill_top20_predictions.json
-mv data/processed/synthetic_top20.jsonl.gz \
-  data/processed/single_skill_top20_records.jsonl.gz
-```
-
-For existing reports, rename `fcsr-base` to `fcsr-single` and `base-rerank` to `dense-base-reranker` at the same path. After checking the copied files, remove the two old synthetic directories. Regenerate the corresponding manifest after a new dataset build; do not edit record content by hand.
 
 ## Documentation
 

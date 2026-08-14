@@ -4,20 +4,26 @@ seed: 42
 data:
   raw_skills: data/raw/skills_easy.jsonl.gz
   raw_tasks: data/raw/evaluation_queries.jsonl.gz
-  contract_sample: data/contracts_32k/sample_skills.jsonl.gz
-  contracts: data/contracts_32k_prompt007/contracts.jsonl.gz
-  contract_failures: data/contracts_32k_prompt007/failures.jsonl.gz
-  contract_manifest: data/contracts_32k/manifest.json
-  single_skill_queries: data/synthetic/single_skill_v1/queries.jsonl.gz
-  single_skill_biencoder_train: data/synthetic/single_skill_v1/train_biencoder.jsonl.gz
-  single_skill_reranker_train: data/synthetic/single_skill_v1/train_reranker.jsonl.gz
-  multiskill_manifest: data/synthetic/multiskill_v1/manifest.json
-  multiskill_candidates: data/synthetic/multiskill_v1/candidates.jsonl.gz
-  multiskill_rejections: data/synthetic/multiskill_v1/candidate_rejections.jsonl.gz
-  multiskill_queries: data/synthetic/multiskill_v1/queries.jsonl.gz
-  weighted_biencoder_train: data/training/multiskill_weighted/biencoder.jsonl.gz
-  weighted_reranker_train: data/training/multiskill_weighted/reranker.jsonl.gz
-
+  contract_sample: data/samples/sample_skills.jsonl.gz
+  sample_manifest: data/samples/manifest.json
+  contracts: data/contracts/contracts.jsonl.gz
+  contract_failures: data/contracts/failures.jsonl.gz
+  contract_manifest: data/contracts/manifest.json
+  single_skill_queries: data/synthetic/single_skill/queries.jsonl.gz
+  single_skill_query_failures: data/synthetic/single_skill/query_failures.jsonl.gz
+  single_skill_local_negatives: data/synthetic/single_skill/local_negatives.jsonl.gz
+  single_skill_semantic_fn_review: data/synthetic/single_skill/semantic_fn_review.jsonl.gz
+  single_skill_biencoder_train: data/synthetic/single_skill/train_biencoder.jsonl.gz
+  single_skill_reranker_train: data/synthetic/single_skill/train_reranker.jsonl.gz
+  multiskill_manifest: data/synthetic/multi_skill/manifest.json
+  multiskill_candidates: data/synthetic/multi_skill/candidates.jsonl.gz
+  multiskill_rejections: data/synthetic/multi_skill/candidate_rejections.jsonl.gz
+  multiskill_queries: data/synthetic/multi_skill/queries.jsonl.gz
+  multiskill_query_failures: data/synthetic/multi_skill/query_failures.jsonl.gz
+  multiskill_review_queue: data/synthetic/multi_skill/review_queue.jsonl.gz
+  weighted_biencoder_train: data/training/mixed/biencoder.jsonl.gz
+  weighted_reranker_train: data/training/mixed/reranker.jsonl.gz
+  weighted_semantic_fn_review: data/training/mixed/semantic_fn_review.jsonl.gz
 contracts:
   schema_version: contract_v2
   canonical_language: en

@@ -34,7 +34,7 @@ _CONSUMER_ACTIONS = frozenset({
 
 @dataclass(frozen=True)
 class CandidateSettings:
-    max_pairs: int = 7342
+    max_pairs: int = 31977
     max_triples: int = 1000
     max_pairs_per_source: int = 16
     max_artifact_frequency: int = 5

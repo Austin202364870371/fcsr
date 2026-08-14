@@ -1,0 +1,50 @@
+{
+    "schema_version": "synthetic_single_skill_manifest",
+    "status": "awaiting_query_generation",
+    "task_type": "single_skill",
+    "source_contract_dataset": "data/contracts/contracts.jsonl.gz",
+    "generation": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "thinking": "disabled",
+        "json_output": true,
+        "concurrency": 16
+    },
+    "negative_mining": {
+        "sources": {
+            "semantic": 4,
+            "bm25": 3,
+            "same_category": 2,
+            "random": 1
+        },
+        "semantic_top_k": 50,
+        "embedding_fn_threshold": 0.95,
+        "trigram_fn_threshold": 0.85
+    },
+    "artifacts": {
+        "queries": {
+            "path": "queries.jsonl.gz",
+            "records": null
+        },
+        "query_failures": {
+            "path": "query_failures.jsonl.gz",
+            "records": null
+        },
+        "local_negatives": {
+            "path": "local_negatives.jsonl.gz",
+            "records": null
+        },
+        "semantic_fn_review": {
+            "path": "semantic_fn_review.jsonl.gz",
+            "records": null
+        },
+        "train_biencoder": {
+            "path": "train_biencoder.jsonl.gz",
+            "records": null
+        },
+        "train_reranker": {
+            "path": "train_reranker.jsonl.gz",
+            "records": null
+        }
+    }
+}

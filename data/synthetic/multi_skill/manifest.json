@@ -1,0 +1,43 @@
+{
+    "schema_version": "synthetic_multi_skill_manifest",
+    "status": "awaiting_single_skill_queries",
+    "task_type": "multi_skill",
+    "source_universe": {
+        "eligible_skills": "validated contracts AND current single-skill queries AND non-benchmark skills"
+    },
+    "generation": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "thinking": "disabled",
+        "json_output": true,
+        "concurrency": 16
+    },
+    "candidate_policy": {
+        "max_pairs": 31977,
+        "max_triples": 1000,
+        "max_pairs_per_source": 16,
+        "max_artifact_frequency": 5
+    },
+    "artifacts": {
+        "candidates": {
+            "path": "candidates.jsonl.gz",
+            "records": null
+        },
+        "candidate_rejections": {
+            "path": "candidate_rejections.jsonl.gz",
+            "records": null
+        },
+        "queries": {
+            "path": "queries.jsonl.gz",
+            "records": null
+        },
+        "query_failures": {
+            "path": "query_failures.jsonl.gz",
+            "records": null
+        },
+        "review_queue": {
+            "path": "review_queue.jsonl.gz",
+            "records": null
+        }
+    }
+}

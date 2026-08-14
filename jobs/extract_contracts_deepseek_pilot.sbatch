@@ -1,18 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=fcsr-contracts-ds-pilot
+#SBATCH --job-name=fcsr-contracts-pilot
 #SBATCH --qos=cpu
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=00:30:00
-#SBATCH --output=logs/contracts-ds-pilot-%j.out
-#SBATCH --error=logs/contracts-ds-pilot-%j.err
+#SBATCH --output=logs/contracts-pilot-%j.out
+#SBATCH --error=logs/contracts-pilot-%j.err
 
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
-SAMPLE_DIR="${SAMPLE_DIR:-$PROJECT_DIR/data/contracts_32k}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/contracts_deepseek_prompt007_pilot}"
+SAMPLE_DIR="${SAMPLE_DIR:-$PROJECT_DIR/data/samples}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/pilots/contracts}"
 LIMIT="${LIMIT:-32}"
 CONCURRENCY="${CONCURRENCY:-16}"
 

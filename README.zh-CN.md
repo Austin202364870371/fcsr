@@ -21,13 +21,15 @@ Contract 只用于构造可审计训练数据。线上检索仍只使用原始 S
 ```text
 configs/                         通用模型和数据默认配置
 data/
-  contracts/                     抽样 Skill 与 Contract
+  samples/                       扁平存放抽样文件及其 manifest
+  contracts/                     Contract、失败记录及 manifest
   raw/                           Skill 池和公开评测任务
+  pilots/                        与正式数据隔离的 pilot 产物
   synthetic/
-    single_skill_v1/             单 Skill 查询和训练记录
-    multiskill_v1/               已验证候选、LLM 查询与 manifest
+    single_skill/                单 Skill 查询、负例及 manifest
+    multi_skill/                 候选、查询及 manifest
   training/
-    multiskill_weighted/         单遍、按任务类型加权的混合训练集（Git 忽略）
+    mixed/                       单遍、按类型加权的混合训练数据
 docs/                            研究问题说明与参考文献
 jobs/                            Slurm 任务模板
 scripts/
@@ -43,7 +45,9 @@ src/                             可复用实现模块
 tests/                           离线回归测试
 ```
 
-大数据、模型、checkpoint、日志、缓存和生成的报告均被 Git 忽略。每个受跟踪的 `manifest.json` 记录数据版本、输入、参数和产物数量。
+`data/samples/` 保持扁平：`sample_skills.jsonl.gz` 和 `manifest.json` 直接放在
+该目录下，不再增加一级子目录。Git 跟踪所有 `data/**/manifest.json`，大数据、模型、
+checkpoint、日志、缓存和生成报告则继续忽略。
 
 ## 环境
 
@@ -75,12 +79,12 @@ JSON Output。复制 `.env.example` 为 `.env`，填写 `DEEPSEEK_API_KEY`，不
 ```powershell
 # 构建 benchmark-safe 的 32k Contract 样本，再抽取带证据的 Contract。
 python -B scripts/build_single_skill_data.py sample `
-  --sample-size 32000 --output-dir data/contracts_32k --overwrite
+  --sample-size 32000 --output-dir data/samples --overwrite
 python -B scripts/build_single_skill_data.py contracts `
   --model deepseek-v4-flash --concurrency 16 `
-  --sample data/contracts_32k/sample_skills.jsonl.gz `
-  --output data/contracts_32k_prompt007/contracts.jsonl.gz `
-  --failures data/contracts_32k_prompt007/failures.jsonl.gz
+  --sample data/samples/sample_skills.jsonl.gz `
+  --output data/contracts/contracts.jsonl.gz `
+  --failures data/contracts/failures.jsonl.gz
 
 # 生成查询、局部负例，再在 GPU 上挖掘语义负例。
 python -B scripts/build_single_skill_data.py queries
@@ -89,7 +93,11 @@ python -B scripts/build_single_skill_data.py semantic-negatives `
   --model models/Qwen3-Embedding-0.6B --device cuda --overwrite
 ```
 
-输出位于 `data/synthetic/single_skill_v1/`。
+输出位于 `data/synthetic/single_skill/`。局部负例合并 BM25、同类别与随机候选，
+先按 Skill ID、规范化名称、正文完全相同和正文 trigram Jaccard `>= 0.85` 过滤
+潜在假负例；语义阶段使用本地 Qwen3 Embedding 检索 Top-50，再删除与正例 Skill
+余弦相似度 `>= 0.95` 的候选。被删除项写入 `semantic_fn_review.jsonl.gz` 供审计，
+过滤后的记录再转换为可直接训练的 Bi-Encoder 与 Reranker 数据。
 
 ### 2. 多 Skill 数据
 
@@ -103,14 +111,17 @@ python -B scripts/generate_multiskill_queries.py `
   --model deepseek-v4-flash --concurrency 16 --max-attempts 3 --progress
 ```
 
-生成器会校验 JSON 结构、正例 Skill ID 及顺序、source hash、子任务覆盖和依赖 DAG。结果写入 `data/synthetic/multiskill_v1/` 下的 `queries.jsonl.gz`、`failures.jsonl.gz` 与 `review_queue.jsonl.gz`。
+生成器会校验 JSON 结构、正例 Skill ID 及顺序、source hash、子任务覆盖和依赖 DAG。结果写入 `data/synthetic/multi_skill/` 下的 `queries.jsonl.gz`、`query_failures.jsonl.gz` 与 `review_queue.jsonl.gz`。
 
 ### 3. 构建混合训练集
 
-`multiskill_weighted` 中每个原始 query/group 只保存一次，不再做三倍复制。
+`mixed` 中每个原始 query/group 只保存一次，不再做三倍复制。
 pair/triple 在 Bi-Encoder 中仍按不同正例 Skill 各展开一条，这是完整正例监督，
 不是重复采样；Reranker 仍是一条 query 对应一个多标签 group。负例只从 Easy pool
-挖掘，并排除全部正例 Skill ID。每个 epoch 会把单、多 Skill 样本整体打乱交错训练。
+挖掘，并排除全部正例 Skill ID。语义 Top-64 候选还会逐一与每个正例 Skill 比较，
+按 `0.95` 阈值过滤，并把删除项写入
+`data/training/mixed/semantic_fn_review.jsonl.gz`。每个 epoch 会把单、多 Skill
+样本整体打乱交错训练。
 
 默认对多 Skill Bi-Encoder 样本使用 `1.5` 损失权重，对多 Skill Reranker group
 使用 `3.0` 权重。按预计原始比例，两阶段的有效多 Skill 梯度占比约为 18%–21%。
@@ -121,7 +132,7 @@ python -B scripts/build_multiskill_training_data.py \
   --negative-model models/Qwen3-Embedding-0.6B \
   --biencoder-multi-loss-weight 1.5 \
   --reranker-multi-loss-weight 3.0 \
-  --output-dir data/training/multiskill_weighted
+  --output-dir data/training/mixed
 ```
 
 ## 模型训练
@@ -130,21 +141,21 @@ python -B scripts/build_multiskill_training_data.py \
 
 ```bash
 python -B scripts/train_biencoder.py \
-  --train-data data/training/multiskill_weighted/biencoder.jsonl.gz \
+  --train-data data/training/mixed/biencoder.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Embedding-0.6B \
   --output-dir checkpoints/fcsr-emb-0.6b-multiskill-weighted
 
 python -B scripts/train_reranker.py train \
-  --groups data/training/multiskill_weighted/reranker.jsonl.gz \
+  --groups data/training/mixed/reranker.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Reranker-0.6B \
   --output-dir checkpoints/fcsr-rank-0.6b-multiskill-weighted
 ```
 
 单 Skill 基线不需要构建混合集，但需要显式传入
-`data/synthetic/single_skill_v1/train_biencoder.jsonl.gz` 或
-`data/synthetic/single_skill_v1/train_reranker.jsonl.gz`，checkpoint 建议命名为
+`data/synthetic/single_skill/train_biencoder.jsonl.gz` 或
+`data/synthetic/single_skill/train_reranker.jsonl.gz`，checkpoint 建议命名为
 `fcsr-emb-0.6b-single` 和 `fcsr-rank-0.6b-single`。
 
 ## 评测
@@ -217,7 +228,7 @@ sbatch jobs/extract_contracts_deepseek_pilot.sbatch
 审计 pilot 后，再提交独立的 32k 正式作业：
 
 ```bash
-sbatch jobs/extract_contracts_deepseek_32k.sbatch
+sbatch jobs/extract_contracts_deepseek.sbatch
 ```
 
 每个请求只包含一条 Skill；`CONCURRENCY=16` 只控制同时在途的独立请求数。
@@ -232,48 +243,40 @@ operations/constraints 最多 12 条、outputs 最多 10 条、其余集合最�
 近重复的 constraint/quality criterion 会被合并。Contract 最大输出为 6,144 tokens；最终
 失败记录会在可用时保存最后一次原始响应和 API `finish_reason`，以便区分长度截断
 与 JSON 语法错误。输出位于
-`data/contracts_32k_prompt007/contracts.jsonl.gz`。
+`data/contracts/contracts.jsonl.gz`。
 
-多 Skill API 生成模板位于
-[jobs/generate_multiskill_deepseek.sbatch](jobs/generate_multiskill_deepseek.sbatch)：
+后续流程严格按依赖顺序提交：
 
 ```bash
+# 1. DeepSeek 生成单 Skill query（16 路并发）。
+sbatch jobs/generate_single_skill_deepseek.sbatch
+
+# 2. 挖掘局部负例并做局部 FN 过滤。
+sbatch jobs/mine_single_skill_local_negatives.sbatch
+
+# 3. 用本地 Qwen 挖掘语义负例并做语义 FN 过滤。
+sbatch jobs/mine_single_skill_semantic_negatives.sbatch
+
+# 4. 将过滤后的单 Skill 记录转换为 Reranker group。
+sbatch jobs/prepare_single_skill_reranker.sbatch
+
+# 5. 构建 Contract 校验的多 Skill 候选。
+sbatch jobs/build_multi_skill_candidates.sbatch
+
+# 6. 先运行 50 条多 Skill DeepSeek pilot 并审计。
 sbatch jobs/generate_multiskill_deepseek.sbatch
-```
 
-单 Skill 32k query 使用独立模板：
-
-```bash
-sbatch jobs/generate_single_skill_deepseek_32k.sbatch
-```
-
-多 Skill 模板默认只运行 50 条 pilot；全量运行使用：
-
-```bash
+# 7. pilot 通过后生成全部多 Skill query。
 sbatch --export=ALL,FULL_RUN=1 jobs/generate_multiskill_deepseek.sbatch
+
+# 8. 挖掘多 Skill 负例、过滤 FN，并构建 mixed 训练数据。
+sbatch jobs/build_mixed_training_data.sbatch
 ```
 
-## 迁移已有本地或服务器数据
-
-此次重构仅改变命名，不改变数据 schema。`git pull` 后新目录中已经有受跟踪的 manifest，因此只合并被 Git 忽略的数据文件：
-
-```bash
-rsync -a --exclude manifest.json data/synthetic/single_v1/ \
-  data/synthetic/single_skill_v1/
-rsync -a --exclude manifest.json data/synthetic/compositional_v1/ \
-  data/synthetic/multiskill_v1/
-mv data/synthetic/multiskill_v1/compositional_queries.jsonl.gz \
-  data/synthetic/multiskill_v1/queries.jsonl.gz
-# 旧 3x 记录不能靠改名迁移；请用新版脚本重新构建 weighted 数据。
-mv data/processed/contract_fn_review.jsonl.gz \
-  data/processed/semantic_negative_review.jsonl.gz
-mv data/processed/synthetic_top20.json \
-  data/processed/single_skill_top20_predictions.json
-mv data/processed/synthetic_top20.jsonl.gz \
-  data/processed/single_skill_top20_records.jsonl.gz
-```
-
-已有 reports 中，将同一路径的 `fcsr-base` 改为 `fcsr-single`、`base-rerank` 改为 `dense-base-reranker`。确认文件已复制后，再删除两个旧 synthetic 目录。重新构建数据后会更新对应 manifest；不要手工修改 JSONL 记录内容。
+两个 DeepSeek query 作业均固定使用 `deepseek-v4-flash`、关闭思考、启用 JSON
+Output、每次请求一个条目并保持 16 路并发。负例挖掘和训练数据构建只使用本地
+Qwen 模型。连续提交时应添加 Slurm `afterok` 依赖；上游 manifest 和产物未审计前，
+不要启动下游阶段。
 
 ## 文档
 

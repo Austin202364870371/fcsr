@@ -34,32 +34,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--candidates",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/candidates.jsonl.gz"),
+        default=Path("data/synthetic/multi_skill/candidates.jsonl.gz"),
     )
     parser.add_argument(
         "--contracts",
         type=Path,
-        default=Path("data/contracts_32k_prompt007/contracts.jsonl.gz"),
+        default=Path("data/contracts/contracts.jsonl.gz"),
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/queries.jsonl.gz"),
+        default=Path("data/synthetic/multi_skill/queries.jsonl.gz"),
     )
     parser.add_argument(
         "--failures",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/failures.jsonl.gz"),
+        default=Path("data/synthetic/multi_skill/query_failures.jsonl.gz"),
     )
     parser.add_argument(
         "--review-queue",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/review_queue.jsonl.gz"),
+        default=Path("data/synthetic/multi_skill/review_queue.jsonl.gz"),
     )
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/manifest.json"),
+        default=Path("data/synthetic/multi_skill/manifest.json"),
     )
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--concurrency", type=int, default=16)
@@ -205,7 +205,10 @@ def _update_manifest(path: Path, summary: dict[str, Any], args: argparse.Namespa
     if not isinstance(artifacts, dict):
         raise ValueError("manifest artifacts must be a JSON object")
     artifacts["queries"] = {"path": args.output.name, "records": summary["queries"]}
-    artifacts["failures"] = {"path": args.failures.name, "records": summary["failures"]}
+    artifacts["query_failures"] = {
+        "path": args.failures.name,
+        "records": summary["failures"],
+    }
     artifacts["review_queue"] = {
         "path": args.review_queue.name,
         "records": summary["review_queue"],

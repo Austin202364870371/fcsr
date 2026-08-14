@@ -11,17 +11,37 @@
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
+CANDIDATE_DIR="${CANDIDATE_DIR:-$PROJECT_DIR/data/synthetic/multi_skill}"
+CONTRACT_DIR="${CONTRACT_DIR:-$PROJECT_DIR/data/contracts}"
+FORMAL_DIR="${FORMAL_DIR:-$PROJECT_DIR/data/synthetic/multi_skill}"
+PILOT_DIR="${PILOT_DIR:-$PROJECT_DIR/data/pilots/multi_skill}"
 LIMIT="${LIMIT:-50}"
 FULL_RUN="${FULL_RUN:-0}"
 OVERWRITE="${OVERWRITE:-0}"
 CONCURRENCY="${CONCURRENCY:-16}"
 
+if [[ "$FULL_RUN" == "1" ]]; then
+  OUTPUT_DIR="$FORMAL_DIR"
+else
+  OUTPUT_DIR="$PILOT_DIR"
+fi
+
 cd "$PROJECT_DIR"
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$PROJECT_DIR/env-qgen"
-mkdir -p "$PROJECT_DIR/logs"
+mkdir -p "$PROJECT_DIR/logs" "$OUTPUT_DIR"
 
-arguments=(--model deepseek-v4-flash --concurrency "$CONCURRENCY")
+arguments=(
+  --candidates "$CANDIDATE_DIR/candidates.jsonl.gz"
+  --contracts "$CONTRACT_DIR/contracts.jsonl.gz"
+  --output "$OUTPUT_DIR/queries.jsonl.gz"
+  --failures "$OUTPUT_DIR/query_failures.jsonl.gz"
+  --review-queue "$OUTPUT_DIR/review_queue.jsonl.gz"
+  --manifest "$OUTPUT_DIR/manifest.json"
+  --model deepseek-v4-flash
+  --concurrency "$CONCURRENCY"
+  --max-attempts 3
+)
 if [[ "$FULL_RUN" != "1" ]]; then
   arguments+=(--limit "$LIMIT")
 fi

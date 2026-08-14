@@ -26,30 +26,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--contracts",
         type=Path,
-        default=Path("data/contracts_32k_prompt007/contracts.jsonl.gz"),
+        default=Path("data/contracts/contracts.jsonl.gz"),
     )
     parser.add_argument(
         "--queries",
         type=Path,
-        default=Path("data/synthetic/single_skill_v1/queries.jsonl.gz"),
+        default=Path("data/synthetic/single_skill/queries.jsonl.gz"),
     )
     parser.add_argument("--tasks", type=Path, default=Path("data/raw/evaluation_queries.jsonl.gz"))
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/candidates.jsonl.gz"),
+        default=Path("data/synthetic/multi_skill/candidates.jsonl.gz"),
     )
     parser.add_argument(
         "--rejections",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/candidate_rejections.jsonl.gz"),
+        default=Path("data/synthetic/multi_skill/candidate_rejections.jsonl.gz"),
     )
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path("data/synthetic/multiskill_v1/manifest.json"),
+        default=Path("data/synthetic/multi_skill/manifest.json"),
     )
-    parser.add_argument("--max-pairs", type=int, default=7342)
+    parser.add_argument("--max-pairs", type=int, default=31977)
     parser.add_argument("--max-triples", type=int, default=1000)
     parser.add_argument("--max-pairs-per-source", type=int, default=16)
     parser.add_argument("--max-artifact-frequency", type=int, default=5)

@@ -1,0 +1,49 @@
+{
+    "schema_version": "contract_dataset_manifest",
+    "status": "completed_with_failures",
+    "dataset": "skill_contracts",
+    "source_sample": "data/samples/sample_skills.jsonl.gz",
+    "generation": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "thinking": "disabled",
+        "json_output": true,
+        "concurrency": 16,
+        "prompt_version": "contract_v2_prompt_007",
+        "max_output_tokens": 6144
+    },
+    "counts": {
+        "sample_skills": 32000,
+        "contracts": 31977,
+        "failure_records": 46,
+        "unique_failed_skills": 23
+    },
+    "artifacts": {
+        "contracts": {
+            "path": "contracts.jsonl.gz",
+            "records": 31977,
+            "sha256": "329c01175735f5d4532ded5d942a00fc636299241496bbb30ce9deb5d2b5dd84"
+        },
+        "failures": {
+            "path": "failures.jsonl.gz",
+            "records": 46,
+            "unique_skill_ids": 23,
+            "sha256": "0e936abf425c552d314e1d99634739ddb5de31502d15db6acd1c89aad9356ccf"
+        }
+    },
+    "slurm_jobs": [
+        {
+            "job_id": 54572,
+            "state": "COMPLETED",
+            "succeeded": 31977,
+            "failed": 23
+        },
+        {
+            "job_id": 54614,
+            "state": "COMPLETED",
+            "succeeded": 0,
+            "failed": 23,
+            "error": "APIConnectionError"
+        }
+    ]
+}

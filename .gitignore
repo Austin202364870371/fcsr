@@ -2,17 +2,11 @@
 __pycache__/
 *.py[cod]
 
-data/raw/
-data/contracts/
-data/contracts_local_*/
-data/contracts_*/
-data/synthetic/*
-!data/synthetic/*/
-data/synthetic/*/*
-!data/synthetic/*/manifest.json
-data/processed/
-data/index/
-data/training/
+# Generated data stays local. Every manifest remains visible to Git regardless
+# of its depth so dataset provenance and counts can be reviewed and committed.
+data/**
+!data/**/
+!data/**/manifest.json
 
 checkpoints/
 reports/

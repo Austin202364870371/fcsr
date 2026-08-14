@@ -11,9 +11,9 @@
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
-SAMPLE_DIR="${SAMPLE_DIR:-$PROJECT_DIR/data/contracts_32k}"
-CONTRACT_DIR="${CONTRACT_DIR:-$PROJECT_DIR/data/contracts_32k_prompt007}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/synthetic/single_skill_v1}"
+SAMPLE_DIR="${SAMPLE_DIR:-$PROJECT_DIR/data/samples}"
+CONTRACT_DIR="${CONTRACT_DIR:-$PROJECT_DIR/data/contracts}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/synthetic/single_skill}"
 CONCURRENCY="${CONCURRENCY:-16}"
 
 cd "$PROJECT_DIR"

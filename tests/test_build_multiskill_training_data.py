@@ -20,8 +20,9 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
 
         self.assertEqual(args.biencoder_multi_loss_weight, 1.5)
         self.assertEqual(args.reranker_multi_loss_weight, 3.0)
-        self.assertEqual(args.output_dir, Path("data/training/multiskill_weighted"))
+        self.assertEqual(args.output_dir, Path("data/training/mixed"))
         self.assertEqual(args.semantic_top_k, 64)
+        self.assertIsNone(args.semantic_review)
 
     def test_semantic_filter_rejects_candidates_close_to_any_positive(self) -> None:
         candidates = [
@@ -47,15 +48,29 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
             "dev/far": 4,
         }
 
+        review_records = []
         kept = filter_semantic_false_negatives(
             candidates,
             ["dev/a", "dev/b"],
             skill_embeddings,
             index_by_id,
             threshold=0.95,
+            query_id="compq::one",
+            review_records=review_records,
         )
 
         self.assertEqual([item["skill_id"] for item in kept], ["dev/far"])
+        self.assertEqual(
+            [
+                (item["query_id"], item["positive_skill_id"], item["skill_id"])
+                for item in review_records
+            ],
+            [
+                ("compq::one", "dev/a", "dev/near-a"),
+                ("compq::one", "dev/b", "dev/near-b"),
+            ],
+        )
+
     def test_run_writes_directly_trainable_outputs(self) -> None:
         def make_skill(skill_id: str) -> dict:
             return {
@@ -107,6 +122,8 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
 
             self.assertEqual(summary["biencoder_records"], 3)
             self.assertEqual(summary["reranker_groups"], 2)
+            self.assertEqual(summary["multiskill_semantic_fn_removed"], 0)
+            self.assertTrue((output_dir / "semantic_fn_review.jsonl.gz").is_file())
             groups = list(stream_jsonl(output_dir / "reranker.jsonl.gz"))
             self.assertEqual(sum(groups[1]["positive_mask"]), 2)
             self.assertEqual(groups[1]["loss_weight"], 3.0)
@@ -136,6 +153,10 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
         self.assertFalse(manifest["mixture"]["replicated_multiskill_queries"])
         self.assertEqual(manifest["negative_mining"]["semantic_top_k"], 96)
         self.assertEqual(manifest["outputs"]["biencoder"]["records"], 10741)
+        self.assertEqual(
+            manifest["outputs"]["semantic_fn_review"],
+            {"path": "semantic_fn_review.jsonl.gz", "records": 0},
+        )
 
 
 if __name__ == "__main__":

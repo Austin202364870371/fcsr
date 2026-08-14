@@ -1,0 +1,43 @@
+{
+    "schema_version": "mixed_training_manifest",
+    "status": "awaiting_synthetic_queries",
+    "task": "single_and_multi_skill_retrieval",
+    "inputs": {
+        "single_biencoder": "data/synthetic/single_skill/train_biencoder.jsonl.gz",
+        "single_reranker": "data/synthetic/single_skill/train_reranker.jsonl.gz",
+        "multi_skill_queries": "data/synthetic/multi_skill/queries.jsonl.gz",
+        "skills": "data/raw/skills_easy.jsonl.gz"
+    },
+    "negative_mining": {
+        "semantic_model": "models/Qwen3-Embedding-0.6B",
+        "semantic_top_k": 64,
+        "semantic_fn_threshold": 0.95,
+        "sources": {
+            "semantic": 4,
+            "bm25": 3,
+            "same_category": 2,
+            "random": 1
+        },
+        "multi_positive_policy": "exclude every positive Skill from negatives"
+    },
+    "mixture": {
+        "strategy": "single_pass_type_weighted_loss",
+        "biencoder_multi_loss_weight": 1.5,
+        "reranker_multi_loss_weight": 3.0,
+        "replicated_multi_skill_queries": false
+    },
+    "artifacts": {
+        "biencoder": {
+            "path": "biencoder.jsonl.gz",
+            "records": null
+        },
+        "reranker": {
+            "path": "reranker.jsonl.gz",
+            "records": null
+        },
+        "semantic_fn_review": {
+            "path": "semantic_fn_review.jsonl.gz",
+            "records": null
+        }
+    }
+}

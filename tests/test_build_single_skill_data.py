@@ -17,13 +17,13 @@ class BuildSingleSkillDataTests(unittest.TestCase):
         self.assertEqual(contracts.max_new_tokens, 6144)
         sample = parser.parse_args(["sample"])
         self.assertEqual(sample.sample_size, 32000)
-        self.assertEqual(sample.output_dir, "data/contracts_32k")
+        self.assertEqual(sample.output_dir, "data/samples")
         self.assertEqual(
-            contracts.sample, "data/contracts_32k/sample_skills.jsonl.gz"
+            contracts.sample, "data/samples/sample_skills.jsonl.gz"
         )
         self.assertEqual(
             contracts.output,
-            "data/contracts_32k_prompt007/contracts.jsonl.gz",
+            "data/contracts/contracts.jsonl.gz",
         )
 
     def test_progress_can_be_disabled_for_supported_commands(self) -> None:
