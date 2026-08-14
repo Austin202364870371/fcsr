@@ -125,10 +125,12 @@ The generator validates JSON structure, exact positive Skill IDs and order, sour
 threefold copies. A pair or triple still produces one bi-encoder record per distinct
 positive Skill because each positive label must be trained once. The reranker keeps the
 same query as one multi-label group. Negatives come only from the Easy pool and exclude
-every positive Skill ID. Semantic Top-64 candidates are also compared against every
-positive Skill at the `0.95` threshold; removals are saved to
-`data/training/semantic_fn_review.jsonl.gz`. Each epoch shuffles all single- and
-multi-Skill records together.
+every positive Skill ID. Qwen retrieves semantic Top-64 candidates; before selection,
+every semantic, BM25, same-category, and random candidate is compared against every
+positive Skill at the `0.95` embedding threshold. Rejected candidates are audited in
+`data/training/semantic_fn_review.jsonl.gz`, and the miner continues scanning the same
+source to refill its quota when possible. Each epoch shuffles all single- and multi-Skill
+records together.
 
 The default type weights are `1.5` for multi-Skill bi-encoder records and `3.0` for
 multi-Skill reranker groups. They keep the on-disk distribution natural while raising

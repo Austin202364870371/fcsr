@@ -30,7 +30,7 @@
 
 旧版 8k 运行曾得到 497 个有向 pair、51 个 triple，并有 541/548 条 query 通过严格结构校验；这些数字只作为历史产出率参考。当前 `data/synthetic/multi_skill/` 尚未生成候选和 query，应在当前单 Skill query 完成后重新构建。
 
-mixed 数据不复制多 Skill query。每条组合任务在 Reranker 中只出现一次；在 Bi-Encoder 中按每个不同正例 Skill 各展开一次，并保留完整 `positive_skill_ids`。所有正例都从负例中排除。多 Skill 语义挖掘使用本地 Qwen Top-64，候选若与任一正例的余弦相似度 `>= 0.95` 即被过滤，并写入 `data/training/semantic_fn_review.jsonl.gz`。默认多 Skill 损失权重为 Bi-Encoder `1.5`、Reranker `3.0`，每个 epoch 对全部类型整体打乱。
+mixed 数据不复制多 Skill query。每条组合任务在 Reranker 中只出现一次；在 Bi-Encoder 中按每个不同正例 Skill 各展开一次，并保留完整 `positive_skill_ids`。所有正例都从负例中排除。多 Skill 语义挖掘使用本地 Qwen Top-64；语义、BM25、同类别和随机四类候选在入选前都逐一与全部正例比较，若与任一正例的余弦相似度 `>= 0.95` 即被过滤，并写入 `data/training/semantic_fn_review.jsonl.gz`。过滤后继续扫描同一来源以尽量补满 `4/3/2/1` 配额。默认多 Skill 损失权重为 Bi-Encoder `1.5`、Reranker `3.0`，每个 epoch 对全部类型整体打乱。
 
 ## 数据比例与训练策略
 

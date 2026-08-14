@@ -121,10 +121,10 @@ python -B scripts/generate_multiskill_queries.py `
 `mixed` 中每个原始 query/group 只保存一次，不再做三倍复制。
 pair/triple 在 Bi-Encoder 中仍按不同正例 Skill 各展开一条，这是完整正例监督，
 不是重复采样；Reranker 仍是一条 query 对应一个多标签 group。负例只从 Easy pool
-挖掘，并排除全部正例 Skill ID。语义 Top-64 候选还会逐一与每个正例 Skill 比较，
-按 `0.95` 阈值过滤，并把删除项写入
-`data/training/semantic_fn_review.jsonl.gz`。每个 epoch 会把单、多 Skill
-样本整体打乱交错训练。
+挖掘，并排除全部正例 Skill ID。Qwen 先检索语义 Top-64；随后每个语义、BM25、
+同类别和随机候选在入选前都会逐一与全部正例 Skill 比较，按 `0.95` embedding
+阈值过滤。删除项写入 `data/training/semantic_fn_review.jsonl.gz`，并继续扫描
+同一来源以尽量补满配额。每个 epoch 会把单、多 Skill 样本整体打乱交错训练。
 
 默认对多 Skill Bi-Encoder 样本使用 `1.5` 损失权重，对多 Skill Reranker group
 使用 `3.0` 权重。按预计原始比例，两阶段的有效多 Skill 梯度占比约为 18%–21%。

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import random
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from itertools import chain
 from typing import Any
@@ -24,6 +24,9 @@ class MixedTrainingBuildResult:
     compositional_reranker_groups: int
 
 
+CandidateFilter = Callable[[str, list[str], dict[str, Any]], bool]
+
+
 def build_mixed_training_records(
     single_biencoder_records: Iterable[dict[str, Any]],
     single_reranker_groups: Iterable[dict[str, Any]],
@@ -35,6 +38,7 @@ def build_mixed_training_records(
     reranker_multi_loss_weight: float,
     seed: int,
     overlap_threshold: float = 0.85,
+    candidate_filter: CandidateFilter | None = None,
     progress: Any | None = None,
 ) -> MixedTrainingBuildResult:
     """Build mixed data while treating every Skill in a composition as positive."""
@@ -50,6 +54,7 @@ def build_mixed_training_records(
         semantic_candidates,
         seed=seed,
         overlap_threshold=overlap_threshold,
+        candidate_filter=candidate_filter,
         progress=progress,
     )
 
@@ -125,6 +130,7 @@ def _mine_compositional_negatives(
     *,
     seed: int,
     overlap_threshold: float,
+    candidate_filter: CandidateFilter | None,
     progress: Any | None,
 ) -> dict[str, list[dict[str, Any]]]:
     if not 0 <= overlap_threshold <= 1:
@@ -194,9 +200,18 @@ def _mine_compositional_negatives(
                     for positive in positives
                 ):
                     continue
-                selected.append(
-                    {"skill_id": candidate_id, "source": source, "score": float(score)}
-                )
+                selected_candidate = {
+                    "skill_id": candidate_id,
+                    "source": source,
+                    "score": float(score),
+                }
+                if candidate_filter is not None and not candidate_filter(
+                    query_id,
+                    positive_ids,
+                    selected_candidate,
+                ):
+                    continue
+                selected.append(selected_candidate)
                 selected_ids.add(candidate_id)
                 added += 1
                 if added >= target:

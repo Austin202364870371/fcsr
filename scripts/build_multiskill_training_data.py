@@ -92,6 +92,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     skills = list(stream_jsonl(args.skills))
     _validate_unique_query_ids(multiskill_queries)
     semantic_review_records: list[dict[str, Any]] = []
+    embedding_context: dict[str, Any] = {}
     semantic_candidates = mine_semantic_candidates(
         multiskill_queries,
         skills,
@@ -104,21 +105,55 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         device=args.device,
         show_progress=not args.no_progress,
         semantic_review_records=semantic_review_records,
+        embedding_context=embedding_context,
     )
-    with _progress(
-        len(multiskill_queries), "Building multi-Skill records", "query", args.no_progress
-    ) as progress:
-        result = build_mixed_training_records(
-            single_biencoder,
-            single_reranker,
-            multiskill_queries,
-            skills,
-            semantic_candidates,
-            biencoder_multi_loss_weight=args.biencoder_multi_loss_weight,
-            reranker_multi_loss_weight=args.reranker_multi_loss_weight,
-            seed=args.seed,
-            progress=progress.update,
-        )
+    candidate_filter = None
+    if embedding_context:
+        decisions: dict[tuple[str, str], bool] = {}
+
+        def candidate_filter(
+            query_id: str,
+            positive_skill_ids: list[str],
+            candidate: dict[str, Any],
+        ) -> bool:
+            candidate_id = str(candidate.get("skill_id", ""))
+            key = (query_id, candidate_id)
+            if key not in decisions:
+                kept = filter_semantic_false_negatives(
+                    [candidate],
+                    positive_skill_ids,
+                    embedding_context["skill_embeddings"],
+                    embedding_context["index_by_id"],
+                    threshold=args.semantic_fn_threshold,
+                    query_id=query_id,
+                    review_records=semantic_review_records,
+                    filter_scope="selected_all_sources",
+                )
+                decisions[key] = bool(kept)
+            return decisions[key]
+
+    try:
+        with _progress(
+            len(multiskill_queries),
+            "Building multi-Skill records",
+            "query",
+            args.no_progress,
+        ) as progress:
+            result = build_mixed_training_records(
+                single_biencoder,
+                single_reranker,
+                multiskill_queries,
+                skills,
+                semantic_candidates,
+                biencoder_multi_loss_weight=args.biencoder_multi_loss_weight,
+                reranker_multi_loss_weight=args.reranker_multi_loss_weight,
+                seed=args.seed,
+                candidate_filter=candidate_filter,
+                progress=progress.update,
+            )
+    finally:
+        embedding_context.clear()
+        gc.collect()
     biencoder_count = write_jsonl_atomic(outputs["biencoder"], result.biencoder_records)
     reranker_count = write_jsonl_atomic(outputs["reranker"], result.reranker_groups)
     semantic_review_count = write_jsonl_atomic(
@@ -132,7 +167,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "multiskill_reranker_groups": result.compositional_reranker_groups,
         "biencoder_records": biencoder_count,
         "reranker_groups": reranker_count,
-        "multiskill_semantic_fn_removed": semantic_review_count,
+        "multiskill_embedding_fn_removed": semantic_review_count,
     }
     manifest = build_manifest(
         single_biencoder_path=args.single_biencoder,
@@ -174,6 +209,7 @@ def mine_semantic_candidates(
     device: str,
     show_progress: bool,
     semantic_review_records: list[dict[str, Any]] | None = None,
+    embedding_context: dict[str, Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     if semantic_top_k <= 0:
         raise ValueError("semantic_top_k must be positive")
@@ -226,7 +262,11 @@ def mine_semantic_candidates(
     for record, row_indices, row_scores in zip(compositional, indices, scores):
         query_id = record["query_id"]
         raw_candidates = [
-            {"skill_id": skill_ids[index], "score": float(score)}
+            {
+                "skill_id": skill_ids[index],
+                "source": "semantic",
+                "score": float(score),
+            }
             for index, score in zip(row_indices.tolist(), row_scores.tolist())
         ]
         positive_ids = record.get("positive_skill_ids")
@@ -240,7 +280,11 @@ def mine_semantic_candidates(
             threshold=semantic_fn_threshold,
             query_id=query_id,
             review_records=semantic_review_records,
+            filter_scope="semantic_topk",
         )
+    if embedding_context is not None:
+        embedding_context["skill_embeddings"] = skill_embeddings
+        embedding_context["index_by_id"] = index_by_id
     return candidates
 
 
@@ -253,6 +297,7 @@ def filter_semantic_false_negatives(
     threshold: float,
     query_id: str | None = None,
     review_records: list[dict[str, Any]] | None = None,
+    filter_scope: str = "semantic_topk",
 ) -> list[dict[str, Any]]:
     """Drop candidates highly similar to any true Skill in a composition."""
     if not -1 <= threshold <= 1:
@@ -273,10 +318,16 @@ def filter_semantic_false_negatives(
             threshold,
         )
         if review_records is not None:
+            sources = {
+                candidate.get("skill_id"): candidate.get("source", "semantic")
+                for candidate in kept
+            }
             review_records.extend(
                 {
                     "query_id": query_id,
                     "positive_skill_id": positive_id,
+                    "candidate_source": sources.get(item.get("skill_id"), "semantic"),
+                    "filter_scope": filter_scope,
                     **item,
                 }
                 for item in filtered.removed
@@ -317,6 +368,8 @@ def build_manifest(
             "semantic_fn_threshold": semantic_fn_threshold,
             "sources": {"semantic": 4, "bm25": 3, "same_category": 2, "random": 1},
             "multi_positive_policy": "exclude_every_positive_skill_id_from_negatives",
+            "embedding_fn_scope": "all_sources_against_every_positive_before_selection",
+            "refill_after_embedding_fn_filter": True,
         },
         "mixture": {
             "strategy": "single_pass_type_weighted_loss",
@@ -332,7 +385,7 @@ def build_manifest(
             "reranker": {"path": "reranker.jsonl.gz", "records": counts["reranker_groups"]},
             "semantic_fn_review": {
                 "path": semantic_review_path.name,
-                "records": counts.get("multiskill_semantic_fn_removed", 0),
+                "records": counts.get("multiskill_embedding_fn_removed", 0),
             },
         },
     }

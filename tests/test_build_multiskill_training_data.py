@@ -26,9 +26,9 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
 
     def test_semantic_filter_rejects_candidates_close_to_any_positive(self) -> None:
         candidates = [
-            {"skill_id": "dev/near-a", "score": 0.9},
-            {"skill_id": "dev/near-b", "score": 0.8},
-            {"skill_id": "dev/far", "score": 0.7},
+            {"skill_id": "dev/near-a", "source": "bm25", "score": 0.9},
+            {"skill_id": "dev/near-b", "source": "same_category", "score": 0.8},
+            {"skill_id": "dev/far", "source": "random", "score": 0.7},
         ]
         skill_embeddings = np.array(
             [
@@ -57,17 +57,36 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
             threshold=0.95,
             query_id="compq::one",
             review_records=review_records,
+            filter_scope="selected_all_sources",
         )
 
         self.assertEqual([item["skill_id"] for item in kept], ["dev/far"])
         self.assertEqual(
             [
-                (item["query_id"], item["positive_skill_id"], item["skill_id"])
+                (
+                    item["query_id"],
+                    item["positive_skill_id"],
+                    item["skill_id"],
+                    item["candidate_source"],
+                    item["filter_scope"],
+                )
                 for item in review_records
             ],
             [
-                ("compq::one", "dev/a", "dev/near-a"),
-                ("compq::one", "dev/b", "dev/near-b"),
+                (
+                    "compq::one",
+                    "dev/a",
+                    "dev/near-a",
+                    "bm25",
+                    "selected_all_sources",
+                ),
+                (
+                    "compq::one",
+                    "dev/b",
+                    "dev/near-b",
+                    "same_category",
+                    "selected_all_sources",
+                ),
             ],
         )
 
@@ -122,7 +141,7 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
 
             self.assertEqual(summary["biencoder_records"], 3)
             self.assertEqual(summary["reranker_groups"], 2)
-            self.assertEqual(summary["multiskill_semantic_fn_removed"], 0)
+            self.assertEqual(summary["multiskill_embedding_fn_removed"], 0)
             self.assertTrue((output_dir / "semantic_fn_review.jsonl.gz").is_file())
             groups = list(stream_jsonl(output_dir / "reranker.jsonl.gz"))
             self.assertEqual(sum(groups[1]["positive_mask"]), 2)
@@ -152,6 +171,13 @@ class BuildMultiskillTrainingDataTests(unittest.TestCase):
         self.assertEqual(manifest["mixture"]["reranker_multi_loss_weight"], 3.0)
         self.assertFalse(manifest["mixture"]["replicated_multiskill_queries"])
         self.assertEqual(manifest["negative_mining"]["semantic_top_k"], 96)
+        self.assertEqual(
+            manifest["negative_mining"]["embedding_fn_scope"],
+            "all_sources_against_every_positive_before_selection",
+        )
+        self.assertTrue(
+            manifest["negative_mining"]["refill_after_embedding_fn_filter"]
+        )
         self.assertEqual(manifest["outputs"]["biencoder"]["records"], 10741)
         self.assertEqual(
             manifest["outputs"]["semantic_fn_review"],

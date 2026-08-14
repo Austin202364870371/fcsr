@@ -120,6 +120,72 @@ class MultiskillTrainingDataTests(unittest.TestCase):
             self.assertEqual(group["training_type"], "multi_skill")
             self.assertEqual(group["loss_weight"], 3.0)
 
+    def test_candidate_filter_covers_every_source_and_refills_quotas(self) -> None:
+        skills = [
+            skill("dev/a"),
+            skill("dev/b"),
+            *[skill(f"dev/n{index:02d}") for index in range(24)],
+        ]
+        compositional = [
+            {
+                "query_id": "compq::all-sources",
+                "query": "Complete a detailed development workflow.",
+                "positive_skill_ids": ["dev/a", "dev/b"],
+            }
+        ]
+        semantic = {
+            "compq::all-sources": [
+                {"skill_id": f"dev/n{index:02d}", "score": 1.0 - index / 100}
+                for index in range(8)
+            ]
+        }
+        rejected_by_source: dict[str, str] = {}
+        seen_sources: set[str] = set()
+
+        def candidate_filter(
+            query_id: str,
+            positive_ids: list[str],
+            candidate: dict,
+        ) -> bool:
+            self.assertEqual(query_id, "compq::all-sources")
+            self.assertEqual(positive_ids, ["dev/a", "dev/b"])
+            source = candidate["source"]
+            seen_sources.add(source)
+            if source not in rejected_by_source:
+                rejected_by_source[source] = candidate["skill_id"]
+                return False
+            return True
+
+        result = build_mixed_training_records(
+            [],
+            [],
+            compositional,
+            skills,
+            semantic,
+            biencoder_multi_loss_weight=1.5,
+            reranker_multi_loss_weight=3.0,
+            seed=42,
+            candidate_filter=candidate_filter,
+        )
+
+        negatives = result.biencoder_records[0]["negative_candidates"]
+        source_counts = {
+            source: sum(item["source"] == source for item in negatives)
+            for source in ("semantic", "bm25", "same_category", "random")
+        }
+        self.assertEqual(
+            source_counts,
+            {"semantic": 4, "bm25": 3, "same_category": 2, "random": 1},
+        )
+        self.assertEqual(
+            seen_sources,
+            {"semantic", "bm25", "same_category", "random"},
+        )
+        self.assertFalse(
+            set(rejected_by_source.values())
+            & {item["skill_id"] for item in negatives}
+        )
+
     def test_is_deterministic(self) -> None:
         first = build_mixed_training_records(
             self.single_biencoder, self.single_reranker, self.compositional,
