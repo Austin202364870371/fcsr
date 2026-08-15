@@ -1,6 +1,6 @@
 {
   "schema_version": "synthetic_multi_skill_manifest",
-  "status": "candidates_generated",
+  "status": "queries_generated_with_failures",
   "task_type": "multi_skill",
   "source_universe": {
     "eligible_skills": "validated contracts AND current single-skill queries AND non-benchmark skills"
@@ -29,15 +29,15 @@
     },
     "queries": {
       "path": "queries.jsonl.gz",
-      "records": null
+      "records": 2481
     },
     "query_failures": {
       "path": "query_failures.jsonl.gz",
-      "records": null
+      "records": 7
     },
     "review_queue": {
       "path": "review_queue.jsonl.gz",
-      "records": null
+      "records": 579
     }
   },
   "candidate_construction": {
@@ -55,5 +55,29 @@
     "rejections": 18521,
     "output": "/data-nfs/gpu3/u13256401368/fcsr/data/synthetic/multi_skill/candidates.jsonl.gz",
     "rejections_output": "/data-nfs/gpu3/u13256401368/fcsr/data/synthetic/multi_skill/candidate_rejections.jsonl.gz"
+  },
+  "query_generation": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinking": "disabled",
+    "concurrency": 16,
+    "temperature": 0.2,
+    "max_new_tokens": 1024,
+    "max_attempts": 3,
+    "min_query_words": 30,
+    "max_query_words": 260,
+    "limit": null,
+    "candidates": 2488,
+    "contracts": "/data-nfs/gpu3/u13256401368/fcsr/data/contracts/contracts.jsonl.gz",
+    "candidate_types": {
+      "pair": 2025,
+      "triple": 463
+    },
+    "queries": 2481,
+    "failures": 7,
+    "review_queue": 579,
+    "output": "/data-nfs/gpu3/u13256401368/fcsr/data/synthetic/multi_skill/queries.jsonl.gz",
+    "failures_output": "/data-nfs/gpu3/u13256401368/fcsr/data/synthetic/multi_skill/query_failures.jsonl.gz",
+    "review_queue_output": "/data-nfs/gpu3/u13256401368/fcsr/data/synthetic/multi_skill/review_queue.jsonl.gz"
   }
 }

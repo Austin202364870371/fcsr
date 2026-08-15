@@ -1,43 +1,57 @@
 {
-    "schema_version": "mixed_training_manifest",
-    "status": "awaiting_synthetic_queries",
-    "task": "single_and_multi_skill_retrieval",
-    "inputs": {
-        "single_biencoder": "data/synthetic/single_skill/train_biencoder.jsonl.gz",
-        "single_reranker": "data/synthetic/single_skill/train_reranker.jsonl.gz",
-        "multi_skill_queries": "data/synthetic/multi_skill/queries.jsonl.gz",
-        "skills": "data/raw/skills_easy.jsonl.gz"
+  "schema_version": "multiskill_training_v2",
+  "task": "multi_skill_retrieval",
+  "storage_format": "jsonl.gz",
+  "inputs": {
+    "single_biencoder": "data/synthetic/single_skill/train_biencoder.jsonl.gz",
+    "single_reranker": "data/synthetic/single_skill/train_reranker.jsonl.gz",
+    "multiskill_queries": "data/synthetic/multi_skill/queries.jsonl.gz",
+    "skills": "data/raw/skills_easy.jsonl.gz"
+  },
+  "negative_mining": {
+    "semantic_model": "/data-nfs/gpu3/u13256401368/fcsr/models/Qwen3-Embedding-0.6B",
+    "semantic_top_k": 64,
+    "semantic_fn_threshold": 0.95,
+    "sources": {
+      "semantic": 4,
+      "bm25": 3,
+      "same_category": 2,
+      "random": 1
     },
-    "negative_mining": {
-        "semantic_model": "models/Qwen3-Embedding-0.6B",
-        "semantic_top_k": 64,
-        "semantic_fn_threshold": 0.95,
-        "sources": {
-            "semantic": 4,
-            "bm25": 3,
-            "same_category": 2,
-            "random": 1
-        },
-        "multi_positive_policy": "exclude every positive Skill from negatives"
+    "multi_positive_policy": "exclude_every_positive_skill_id_from_negatives",
+    "embedding_fn_scope": "all_sources_against_every_positive_before_selection",
+    "refill_after_embedding_fn_filter": true
+  },
+  "mixture": {
+    "strategy": "single_pass_type_weighted_loss",
+    "biencoder_multi_loss_weight": 1.5,
+    "reranker_multi_loss_weight": 3.0,
+    "seed": 42,
+    "replicated_multiskill_queries": false,
+    "interleave_policy": "shuffle_all_examples_each_epoch"
+  },
+  "counts": {
+    "single_biencoder": 31902,
+    "single_reranker": 31902,
+    "multiskill_queries": 2481,
+    "multiskill_biencoder_examples": 5425,
+    "multiskill_reranker_groups": 2481,
+    "biencoder_records": 37327,
+    "reranker_groups": 34383,
+    "multiskill_embedding_fn_removed": 6254
+  },
+  "outputs": {
+    "biencoder": {
+      "path": "biencoder.jsonl.gz",
+      "records": 37327
     },
-    "mixture": {
-        "strategy": "single_pass_type_weighted_loss",
-        "biencoder_multi_loss_weight": 1.5,
-        "reranker_multi_loss_weight": 3.0,
-        "replicated_multi_skill_queries": false
+    "reranker": {
+      "path": "reranker.jsonl.gz",
+      "records": 34383
     },
-    "artifacts": {
-        "biencoder": {
-            "path": "biencoder.jsonl.gz",
-            "records": null
-        },
-        "reranker": {
-            "path": "reranker.jsonl.gz",
-            "records": null
-        },
-        "semantic_fn_review": {
-            "path": "semantic_fn_review.jsonl.gz",
-            "records": null
-        }
+    "semantic_fn_review": {
+      "path": "semantic_fn_review.jsonl.gz",
+      "records": 6254
     }
+  }
 }
