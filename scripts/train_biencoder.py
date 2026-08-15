@@ -95,7 +95,7 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
         or "Qwen/Qwen3-Embedding-0.6B",
         "output_dir": args.output_dir
         or paths.get("biencoder_checkpoint")
-        or "checkpoints/fcsr-emb-0.6b",
+        or "checkpoints/fcsr/retriever",
         "method": args.method or training.get("method", "lora"),
         "epochs": args.epochs
         if args.epochs is not None

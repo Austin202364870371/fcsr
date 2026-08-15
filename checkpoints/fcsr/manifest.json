@@ -1,0 +1,31 @@
+{
+  "schema_version": "fcsr_system_v1",
+  "base_commit": "af6bd60dcea7f15d5fcc1c0ef2c800e8e0569505",
+  "evaluation": {
+    "tier": "hard",
+    "retrieval_top_k": 50,
+    "rerank_top_k": 20,
+    "output_top_k": 10
+  },
+  "system_id": "fcsr",
+  "display_name": "FCSR",
+  "status": "primary",
+  "components": {
+    "retriever": "retriever",
+    "reranker": "reranker"
+  },
+  "training": {
+    "retriever_examples": 37327,
+    "reranker_groups": 34383,
+    "single_skill_queries": 31902,
+    "multi_skill_queries": 2481,
+    "biencoder_multi_examples": 5425,
+    "biencoder_multi_loss_weight": 1.5,
+    "reranker_multi_loss_weight": 3.0
+  },
+  "reports": {
+    "root": "reports/systems/fcsr/hard",
+    "retrieval": "rrf",
+    "final": "rrf-rerank"
+  }
+}

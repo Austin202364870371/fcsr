@@ -29,6 +29,8 @@ data/
     single_skill/                单 Skill 查询、负例及 manifest
     multi_skill/                 候选、查询及 manifest
   training/                      单遍、按类型加权的混合训练数据
+checkpoints/                     FCSR/FCSR-Small 组件 checkpoint 与 manifest
+reports/                         仅含 Hard 的 baseline、系统报告和标准表格
 docs/                            研究问题说明与参考文献
 jobs/                            Slurm 任务模板
 scripts/
@@ -46,7 +48,8 @@ tests/                           离线回归测试
 
 `data/samples/` 保持扁平：`sample_skills.jsonl.gz` 和 `manifest.json` 直接放在
 该目录下，不再增加一级子目录。Git 跟踪所有 `data/**/manifest.json`，大数据、模型、
-checkpoint、日志、缓存和生成报告则继续忽略。
+模型权重、日志、缓存和生成报告继续忽略；`checkpoints/` 下轻量的 FCSR 系统
+manifest 保持 Git 跟踪。
 
 ## 环境
 
@@ -140,68 +143,86 @@ python -B scripts/build_multiskill_training_data.py \
 
 ## 模型训练
 
-以下命令使用本地 Hugging Face 模型目录，并用清晰名称保存 LoRA adapter。
+FCSR 按完整系统保存为两个组件。`fcsr` 是使用完整训练语料得到的正式模型；
+`fcsr-small` 是早期小数据规模消融。二者都基于 Qwen3 0.6B，名称描述的是
+训练数据规模，而不是模型参数量。
+
+```text
+checkpoints/
+  fcsr/
+    retriever/
+    reranker/
+    manifest.json
+  fcsr-small/
+    retriever/
+    reranker/
+    manifest.json
+```
+
+默认训练命令写入正式 FCSR：
 
 ```bash
 python -B scripts/train_biencoder.py \
   --train-data data/training/biencoder.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Embedding-0.6B \
-  --output-dir checkpoints/fcsr-emb-0.6b-multiskill-weighted
+  --output-dir checkpoints/fcsr/retriever
 
 python -B scripts/train_reranker.py train \
   --groups data/training/reranker.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Reranker-0.6B \
-  --output-dir checkpoints/fcsr-rank-0.6b-multiskill-weighted
+  --output-dir checkpoints/fcsr/reranker
 ```
 
-单 Skill 基线不需要构建混合集，但需要显式传入
-`data/synthetic/single_skill/train_biencoder.jsonl.gz` 或
-`data/synthetic/single_skill/train_reranker.jsonl.gz`，checkpoint 建议命名为
-`fcsr-emb-0.6b-single` 和 `fcsr-rank-0.6b-single`。
+集群上分别提交 `jobs/train_fcsr_retriever.sbatch` 和
+`jobs/train_fcsr_reranker.sbatch`。历史 single-skill FCSR checkpoint 不再属于
+维护中的模型集合。
 
 ## 评测
 
-`evaluate.py` 将每个阶段拆开，保证每个实验都有独立、可追溯的产物。
+模型评测只使用冻结的 Hard pool，不再维护或生成任何 Easy-pool report。
+正式 FCSR 流水线为：
 
-```bash
-# 第一阶段：用 RRF 获得高召回候选。
-python -B scripts/evaluate.py hybrid \
-  --queries data/raw/evaluation_queries.jsonl.gz \
-  --skills data/raw/skills_hard.jsonl.gz \
-  --model checkpoints/fcsr-emb-0.6b-multiskill-weighted \
-  --top-k 50 --fusion-depth 100 --rrf-k 60 \
-  --output-predictions reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
-  --output-records reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl
-
-# 第二阶段：按冻结协议重排第一阶段的 Top-20 候选。
-python -B scripts/evaluate.py rerank \
-  --retrieval-records reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl \
-  --skills data/raw/skills_hard.jsonl.gz \
-  --model checkpoints/fcsr-rank-0.6b-multiskill-weighted \
-  --top-k 20 \
-  --output-predictions reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
-  --output-records reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl
-
-python -B scripts/evaluate.py score \
-  --tasks data/raw/evaluation_queries.jsonl.gz \
-  --skills data/raw/skills_hard.jsonl.gz \
-  --predictions reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
-  --stage reranker --tier hard \
-  --output-dir reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted
-
-# 输出第一阶段、最终系统和两阶段消融表。
-python -B scripts/render_evaluation_tables.py
+```text
+Task -> BM25 + FCSR Retriever -> RRF Top-50
+     -> FCSR Reranker Top-20 -> 最终 Top-10 Skills
 ```
 
-生成的表格：
+报告按系统和阶段组织：
 
-- `reports/tables/hard-retrieval.md`：比较所有第一阶段检索器。
-- `reports/tables/hard-final-systems.md`：每个系统只保留最终输出。
-- `reports/tables/hard-two-stage.md`：比较两阶段系统的 retrieval 与 rerank。
+```text
+reports/
+  baselines/hard/
+    bm25/retrieval/
+    base-dense/{retrieval,rerank}/
+    base-rrf/retrieval/
+    skillrouter/{retrieval,rerank}/
+  systems/
+    fcsr/hard/{dense,rrf,dense-rerank,rrf-rerank}/
+    fcsr-small/hard/{dense,rrf,dense-rerank,rrf-rerank}/
+  tables/
+    hard-retrieval.md
+    hard-final.md
+    hard-two-stage.md
+```
 
-最终表中的加粗仅表示数值最大，不表示统计显著性。
+通过 Slurm 运行正式 RRF、Reranker 和表格渲染：
+
+```bash
+sbatch jobs/evaluate_fcsr_retrieval.sbatch
+sbatch jobs/evaluate_fcsr_reranker.sbatch
+sbatch jobs/render_reports.sbatch
+```
+
+检索 job 默认使用 `FCSR_SYSTEM=fcsr` 和 `RETRIEVAL_MODE=rrf`。设置
+`FCSR_SYSTEM=fcsr-small` 可评测小数据规模消融，设置
+`RETRIEVAL_MODE=dense` 可评测纯 Dense 阶段。Reranker job 使用相同变量，
+自动解析对应的 retrieval records 和输出目录。
+
+最终结果表将完整的 RRF + Reranker 流水线命名为 `Ours: FCSR`，小数据规模系统
+命名为 `Ours: FCSR-Small`。类型权重等训练细节保留在 manifest 和方法说明中，
+不再写进公开模型名。最终表中的加粗仅表示数值最大，不表示统计显著性。
 
 ## 32k 数据比例与文献依据
 

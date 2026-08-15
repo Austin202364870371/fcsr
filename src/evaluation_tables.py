@@ -1,4 +1,4 @@
-"""Render the canonical Hard-pool result tables from evaluation summaries."""
+"""Render canonical Hard-pool result tables from organized report summaries."""
 
 from __future__ import annotations
 
@@ -18,151 +18,80 @@ METRIC_COLUMNS = (
 )
 
 FINAL_SYSTEMS = (
-    ("Flat-BM25", "Retrieval", "retrieval", "bm25"),
-    ("Flat-Dense", "Retrieval", "retrieval", "dense"),
-    ("Flat-Hybrid (RRF)", "Retrieval", "retrieval", "hybrid"),
-    ("Flat-Dense + Base Reranker", "Rerank", "reranker", "dense-base-reranker"),
-    ("SkillRouter", "Rerank", "reranker", "skillrouter"),
-    ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
-    ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
+    ("Flat-BM25", "Retrieval", "retrieval", "baselines/hard/bm25/retrieval"),
+    ("Flat-Dense", "Retrieval", "retrieval", "baselines/hard/base-dense/retrieval"),
+    ("Flat-Hybrid (RRF)", "Retrieval", "retrieval", "baselines/hard/base-rrf/retrieval"),
     (
-        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
+        "Flat-Dense + Base Reranker",
         "Rerank",
         "reranker",
-        "rrf-base-emb-multiskill3x",
+        "baselines/hard/base-dense/rerank",
     ),
-    (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
-        "Rerank",
-        "reranker",
-        "rrf-fcsr-emb-multiskill3x-top20",
-    ),
-    ("Ours: FCSR + MultiSkill-Weighted", "Rerank", "reranker", "fcsr-multiskill-weighted"),
-    (
-        "Ours: RRF (Base Emb.) + FCSR MultiSkill-Weighted",
-        "Rerank",
-        "reranker",
-        "rrf-base-emb-multiskill-weighted",
-    ),
-)
-
-OPTIONAL_FINAL_SYSTEMS = (
-    (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-Weighted",
-        "Rerank",
-        "reranker",
-        "rrf-fcsr-emb-multiskill-weighted",
-    ),
+    ("SkillRouter", "Rerank", "reranker", "baselines/hard/skillrouter/rerank"),
+    ("Ours: FCSR-Small", "Rerank", "reranker", "systems/fcsr-small/hard/rrf-rerank"),
+    ("Ours: FCSR", "Rerank", "reranker", "systems/fcsr/hard/rrf-rerank"),
 )
 
 RETRIEVAL_SYSTEMS = (
-    ("BM25", "Retrieval", "retrieval", "bm25"),
-    ("Base Emb.", "Retrieval", "retrieval", "dense"),
-    ("RRF (Base Emb.)", "Retrieval", "retrieval", "hybrid"),
-    ("SkillRouter", "Retrieval", "retrieval", "skillrouter"),
-    ("FCSR Emb. (Single-Skill)", "Retrieval", "retrieval", "fcsr-single"),
-    ("FCSR Emb. (MultiSkill-3x)", "Retrieval", "retrieval", "fcsr-multiskill3x"),
+    ("BM25", "Retrieval", "retrieval", "baselines/hard/bm25/retrieval"),
+    ("Base Emb.", "Retrieval", "retrieval", "baselines/hard/base-dense/retrieval"),
+    ("RRF (Base Emb.)", "Retrieval", "retrieval", "baselines/hard/base-rrf/retrieval"),
+    ("SkillRouter", "Retrieval", "retrieval", "baselines/hard/skillrouter/retrieval"),
+    ("FCSR-Small Retriever", "Retrieval", "retrieval", "systems/fcsr-small/hard/dense"),
     (
-        "RRF (FCSR Emb. MultiSkill-3x)",
+        "FCSR-Small Retrieval (RRF)",
         "Retrieval",
         "retrieval",
-        "rrf-fcsr-emb-multiskill3x",
+        "systems/fcsr-small/hard/rrf",
     ),
-)
-
-OPTIONAL_RETRIEVAL_SYSTEMS = (
-    (
-        "FCSR Emb. (MultiSkill-Weighted)",
-        "Retrieval",
-        "retrieval",
-        "fcsr-multiskill-weighted",
-    ),
-    (
-        "RRF (FCSR Emb. MultiSkill-Weighted)",
-        "Retrieval",
-        "retrieval",
-        "rrf-fcsr-emb-multiskill-weighted",
-    ),
+    ("FCSR Retriever", "Retrieval", "retrieval", "systems/fcsr/hard/dense"),
+    ("FCSR Retrieval (RRF)", "Retrieval", "retrieval", "systems/fcsr/hard/rrf"),
 )
 
 TWO_STAGE_SYSTEMS = (
-    ("Flat-Dense + Base Reranker", "Retrieval", "retrieval", "dense"),
-    ("Flat-Dense + Base Reranker", "Rerank", "reranker", "dense-base-reranker"),
-    ("SkillRouter", "Retrieval", "retrieval", "skillrouter"),
-    ("SkillRouter", "Rerank", "reranker", "skillrouter"),
-    ("Ours: FCSR", "Retrieval", "retrieval", "fcsr-single"),
-    ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
-    ("Ours: FCSR + MultiSkill-3x", "Retrieval", "retrieval", "fcsr-multiskill3x"),
-    ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
     (
-        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
+        "Flat-Dense + Base Reranker",
         "Retrieval",
         "retrieval",
-        "hybrid",
+        "baselines/hard/base-dense/retrieval",
     ),
     (
-        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
+        "Flat-Dense + Base Reranker",
         "Rerank",
         "reranker",
-        "rrf-base-emb-multiskill3x",
+        "baselines/hard/base-dense/rerank",
     ),
+    ("SkillRouter", "Retrieval", "retrieval", "baselines/hard/skillrouter/retrieval"),
+    ("SkillRouter", "Rerank", "reranker", "baselines/hard/skillrouter/rerank"),
+    ("FCSR-Small (Dense)", "Retrieval", "retrieval", "systems/fcsr-small/hard/dense"),
     (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
-        "Retrieval",
-        "retrieval",
-        "rrf-fcsr-emb-multiskill3x",
-    ),
-    (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "FCSR-Small (Dense)",
         "Rerank",
         "reranker",
-        "rrf-fcsr-emb-multiskill3x-top20",
+        "systems/fcsr-small/hard/dense-rerank",
     ),
-    ("Ours: FCSR + MultiSkill-Weighted", "Retrieval", "retrieval", "fcsr-multiskill-weighted"),
-    ("Ours: FCSR + MultiSkill-Weighted", "Rerank", "reranker", "fcsr-multiskill-weighted"),
-    ("Ours: RRF (Base Emb.) + FCSR MultiSkill-Weighted", "Retrieval", "retrieval", "hybrid"),
-    (
-        "Ours: RRF (Base Emb.) + FCSR MultiSkill-Weighted",
-        "Rerank",
-        "reranker",
-        "rrf-base-emb-multiskill-weighted",
-    ),
-)
-
-OPTIONAL_TWO_STAGE_SYSTEMS = (
-    (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-Weighted",
-        "Retrieval",
-        "retrieval",
-        "rrf-fcsr-emb-multiskill-weighted",
-    ),
-    (
-        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-Weighted",
-        "Rerank",
-        "reranker",
-        "rrf-fcsr-emb-multiskill-weighted",
-    ),
+    ("FCSR-Small", "Retrieval", "retrieval", "systems/fcsr-small/hard/rrf"),
+    ("FCSR-Small", "Rerank", "reranker", "systems/fcsr-small/hard/rrf-rerank"),
+    ("FCSR (Dense)", "Retrieval", "retrieval", "systems/fcsr/hard/dense"),
+    ("FCSR (Dense)", "Rerank", "reranker", "systems/fcsr/hard/dense-rerank"),
+    ("FCSR", "Retrieval", "retrieval", "systems/fcsr/hard/rrf"),
+    ("FCSR", "Rerank", "reranker", "systems/fcsr/hard/rrf-rerank"),
 )
 
 
 def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dict[str, Path]:
-    """Write final-system and two-stage Hard-pool Markdown tables."""
+    """Write retrieval, final-system, and two-stage Hard-pool tables."""
     reports_dir = Path(reports_dir)
     output_dir = Path(output_dir) if output_dir is not None else reports_dir / "tables"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     retrieval_path = output_dir / "hard-retrieval.md"
-    final_path = output_dir / "hard-final-systems.md"
+    final_path = output_dir / "hard-final.md"
     ablation_path = output_dir / "hard-two-stage.md"
     retrieval_path.write_text(
         _render_table(
             "Hard Pool Retrieval Comparison",
-            _load_rows(
-                reports_dir,
-                _available_systems(
-                    reports_dir, RETRIEVAL_SYSTEMS, OPTIONAL_RETRIEVAL_SYSTEMS
-                ),
-            ),
+            _load_rows(reports_dir, RETRIEVAL_SYSTEMS),
             stage_header="Stage",
             bold_best=True,
         ),
@@ -171,10 +100,7 @@ def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dic
     final_path.write_text(
         _render_table(
             "Hard Pool Final System Comparison",
-            _load_rows(
-                reports_dir,
-                _available_systems(reports_dir, FINAL_SYSTEMS, OPTIONAL_FINAL_SYSTEMS),
-            ),
+            _load_rows(reports_dir, FINAL_SYSTEMS),
             stage_header="Final Stage",
             bold_best=True,
         ),
@@ -183,10 +109,7 @@ def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dic
     ablation_path.write_text(
         _render_table(
             "Hard Pool Two-Stage Ablation",
-            _load_rows(
-                reports_dir,
-                _available_systems(reports_dir, TWO_STAGE_SYSTEMS, OPTIONAL_TWO_STAGE_SYSTEMS),
-            ),
+            _load_rows(reports_dir, TWO_STAGE_SYSTEMS),
             stage_header="Stage",
             bold_best=False,
         ),
@@ -199,35 +122,24 @@ def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dic
     }
 
 
-def _available_systems(
+def _load_rows(
     reports_dir: Path,
-    required: tuple[tuple[str, str, str, str], ...],
-    optional: tuple[tuple[str, str, str, str], ...],
-) -> tuple[tuple[str, str, str, str], ...]:
-    """Keep optional systems out until every required stage has a Hard summary."""
-    grouped: dict[str, list[tuple[str, str, str, str]]] = {}
-    for specification in optional:
-        grouped.setdefault(specification[0], []).append(specification)
-    available = list(required)
-    for specifications in grouped.values():
-        if all(_has_hard_summary(reports_dir, stage, variant) for _, _, stage, variant in specifications):
-            available.extend(specifications)
-    return tuple(available)
-
-
-def _load_rows(reports_dir: Path, specifications: tuple[tuple[str, str, str, str], ...]) -> list[dict[str, Any]]:
+    specifications: tuple[tuple[str, str, str, str], ...],
+) -> list[dict[str, Any]]:
     return [
         {
             "method": method,
             "stage_label": stage_label,
-            "metrics": _extract_metrics(_load_summary(reports_dir, stage, variant), stage, variant),
+            "metrics": _extract_metrics(
+                _load_summary(reports_dir, stage, location), stage, location
+            ),
         }
-        for method, stage_label, stage, variant in specifications
+        for method, stage_label, stage, location in specifications
     ]
 
 
-def _load_summary(reports_dir: Path, stage: str, variant: str) -> dict[str, Any]:
-    directory = reports_dir / stage / "hard" / variant
+def _load_summary(reports_dir: Path, stage: str, location: str) -> dict[str, Any]:
+    directory = reports_dir / location
     paths = _summary_paths(directory, stage)
     for path in paths:
         if not path.is_file():
@@ -236,45 +148,43 @@ def _load_summary(reports_dir: Path, stage: str, variant: str) -> dict[str, Any]
         if payload.get("stage") == stage and payload.get("tier") == "hard":
             return payload
     raise FileNotFoundError(
-        f"missing Hard {stage} summary for {variant}: " + ", ".join(str(path) for path in paths)
+        f"missing Hard {stage} summary at {location}: "
+        + ", ".join(str(path) for path in paths)
     )
-
-
-def _has_hard_summary(reports_dir: Path, stage: str, variant: str) -> bool:
-    directory = reports_dir / stage / "hard" / variant
-    for path in _summary_paths(directory, stage):
-        if not path.is_file():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return False
-        if payload.get("stage") == stage and payload.get("tier") == "hard":
-            return True
-    return False
 
 
 def _summary_paths(directory: Path, stage: str) -> tuple[Path, Path]:
     return (directory / "summary.json", directory / f"{stage}_hard_summary.json")
 
 
-def _extract_metrics(payload: dict[str, Any], stage: str, variant: str) -> dict[str, float]:
+def _extract_metrics(payload: dict[str, Any], stage: str, location: str) -> dict[str, float]:
     result: dict[str, float] = {}
     metric_groups = payload.get("metrics")
     if not isinstance(metric_groups, dict):
-        raise ValueError(f"metrics missing from Hard {stage} summary for {variant}")
+        raise ValueError(f"metrics missing from Hard {stage} summary at {location}")
     for label, group_name, metric_name in METRIC_COLUMNS:
         group = metric_groups.get(group_name)
         value = group.get(metric_name) if isinstance(group, dict) else None
         if not isinstance(value, (int, float)):
-            raise ValueError(f"{label} missing from Hard {stage} summary for {variant}")
+            raise ValueError(f"{label} missing from Hard {stage} summary at {location}")
         result[label] = float(value)
     return result
 
 
-def _render_table(title: str, rows: list[dict[str, Any]], *, stage_header: str, bold_best: bool) -> str:
+def _render_table(
+    title: str,
+    rows: list[dict[str, Any]],
+    *,
+    stage_header: str,
+    bold_best: bool,
+) -> str:
     headers = ["Method", stage_header, *(column[0] for column in METRIC_COLUMNS)]
-    lines = [f"# {title}", "", "| " + " | ".join(headers) + " |", "|---|---:|" + "---:|" * len(METRIC_COLUMNS)]
+    lines = [
+        f"# {title}",
+        "",
+        "| " + " | ".join(headers) + " |",
+        "|---|---:|" + "---:|" * len(METRIC_COLUMNS),
+    ]
     best = {
         label: max(row["metrics"][label] for row in rows)
         for label, _, _ in METRIC_COLUMNS
@@ -288,13 +198,16 @@ def _render_table(title: str, rows: list[dict[str, Any]], *, stage_header: str, 
                 rendered = f"**{rendered}**"
             rendered_metrics.append(rendered)
         lines.append(
-            f"| {row['method']} | {row['stage_label']} | " + " | ".join(rendered_metrics) + " |"
+            f"| {row['method']} | {row['stage_label']} | "
+            + " | ".join(rendered_metrics)
+            + " |"
         )
     if bold_best:
         lines.extend(
             [
                 "",
-                "> **Bold** marks the best numerical result among final system outputs; it does not indicate statistical significance.",
+                "> **Bold** marks the best numerical result among final system outputs; "
+                "it does not indicate statistical significance.",
             ]
         )
     return "\n".join(lines) + "\n"

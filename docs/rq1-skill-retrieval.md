@@ -1,6 +1,6 @@
 # RQ1：如何提升大规模 Agent Skill 库的检索准确率？
 
-**状态：32k 数据构建、加权训练和冻结 Hard-pool 评测均已完成；新加权系统在四项总体指标上取得当前最佳值。**
+**状态：数据构建、训练与冻结 Hard-pool 评测均已完成；FCSR 已确定为正式主模型。**
 
 ## 问题与假设
 
@@ -13,9 +13,9 @@
 - 从 Easy pool 按类别和语言分层抽样 32,000 条，排除了评测 GT / relevance Skill。抽样文件与 manifest 直接位于 `data/samples/`，该目录不再套子目录。
 - Contract V2 每个字段都指向原文 evidence，本地校验 schema、证据偏移和 `source_hash`。
 - `deepseek-v4-flash` 正式作业生成并通过本地复验的 Contract 为 31,977 条；23 条唯一 Skill 失败。重试作业未恢复这些条目，因此当前接受该缺口，详见 `data/contracts/manifest.json`。
-- 旧版 8k 大文件已从服务器删除，本地备份仍由用户保留。历史统计（7,995 条 Contract、7,342 条单 Skill query）仅用于比例参考，不再是当前训练输入。
+- 旧版 8k 训练大文件已从服务器删除，本地备份仍由用户保留；对应 checkpoint 作为数据规模消融模型 FCSR-Small 保留。
 - 当前正式数据包含 31,902 条单 Skill query 和 2,481 条多 Skill query；混合训练集包含 37,327 条 Bi-Encoder 记录和 34,383 个 Reranker group。
-- Bi-Encoder 与 Reranker 均基于 Qwen3 0.6B 进行 LoRA 训练，正式 checkpoint 分别为 `fcsr-emb-0.6b-multiskill-weighted` 和 `fcsr-rank-0.6b-multiskill-weighted`。
+- Retriever 与 Reranker 均基于 Qwen3 0.6B 进行 LoRA 训练；正式组件位于 `checkpoints/fcsr/{retriever,reranker}`，小数据规模消融位于 `checkpoints/fcsr-small/{retriever,reranker}`。
 - 所有正式 Hard-pool 评测覆盖 75 条任务和 79,141 条候选 Skill，零缺失预测、零无 GT 任务。
 
 这些是工程和数据资产，并不等同于性能结论。结论须来自冻结配置下的对照实验。
@@ -48,24 +48,37 @@ mixed 数据不复制多 Skill query。每条组合任务在 Reranker 中只出�
 
 ## 正式 Hard-pool 结果
 
-冻结协议使用 Dense/RRF Top-50、RRF fusion depth 100、`rrf_k=60`，并对第一阶段 Top-20 候选执行 Reranker。主系统为 `RRF (FCSR Emb. MultiSkill-Weighted) + FCSR Reranker MultiSkill-Weighted`。
+评测只使用冻结的 Hard pool，不再维护 Easy-pool report。协议固定为 Dense/RRF
+Top-50、RRF fusion depth 100、`rrf_k=60`，对第一阶段 Top-20 候选执行
+Reranker，并将最终 Top-10 Skills 提供给任务。
+
+正式系统命名如下：
+
+- `FCSR`：完整训练语料得到的主系统，使用
+  `checkpoints/fcsr/{retriever,reranker}`。
+- `FCSR-Small`：早期小数据规模消融，使用
+  `checkpoints/fcsr-small/{retriever,reranker}`。
+
+两套系统都采用 `BM25 + FCSR Retriever -> RRF -> FCSR Reranker` 架构。
 
 | 系统 | Hit@1 | MRR@10 | nDCG@10 | Recall@10 | Recall@20 | FullCoverage@10 | Multi FullCoverage@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 旧 RRF (Base Emb.) + FCSR MultiSkill-3x | 0.6533 | **0.7423** | 0.6020 | 0.6694 | 0.6991 | 0.4533 | 0.2745 |
-| 旧 RRF (FCSR Emb.) + FCSR MultiSkill-3x | 0.6267 | 0.7189 | 0.5970 | 0.6642 | 0.6930 | **0.4933** | **0.3529** |
-| 新 RRF (FCSR Emb.) 第一阶段 | 0.5733 | 0.6513 | 0.5665 | 0.6523 | **0.7168** | **0.4933** | **0.3529** |
-| Base RRF + 新 FCSR Reranker | 0.6400 | 0.7325 | 0.6023 | **0.6742** | 0.6991 | 0.4533 | 0.2745 |
-| 新 RRF (FCSR Emb.) + FCSR Reranker | **0.6667** | 0.7414 | **0.6127** | 0.6741 | **0.7168** | 0.4533 | 0.2941 |
+| Ours: FCSR-Small | 0.6267 | 0.7189 | 0.5970 | 0.6642 | 0.6930 | **0.4933** | **0.3529** |
+| Ours: FCSR | **0.6667** | **0.7414** | **0.6127** | **0.6741** | **0.7168** | 0.4533 | 0.2941 |
 
-新主系统在 Hit@1、nDCG@10 和 Recall@20 上取得当前最佳值；MRR@10 比旧最佳低 0.0009，Recall@10 比使用同一新 Reranker 的 Base RRF 系统低 0.0001。第一阶段新 RRF 保持最佳 Coverage，但经过 Reranker 后，FullCoverage@10 从 0.4933 降到 0.4533，多 Skill FullCoverage@10 从 0.3529 降到 0.2941。因此当前证据支持“总体排序与召回最强”，不支持“所有指标全面最优”。完整结果位于 `reports/tables/hard-retrieval.md`、`hard-final-systems.md` 和 `hard-two-stage.md`。
+FCSR 在 Hit@1、MRR@10、nDCG@10、Recall@10 和 Recall@20 上全面优于
+FCSR-Small，因此作为正式主模型。FCSR-Small 保留用于数据规模消融和 Coverage
+对照。基础 BM25、Dense、RRF、Base Reranker 与 SkillRouter 报告保留在
+`reports/baselines/hard/`；两个自有系统的规范报告位于
+`reports/systems/{fcsr,fcsr-small}/hard/`。标准表格为
+`reports/tables/hard-retrieval.md`、`hard-final.md` 和
+`hard-two-stage.md`。
 
-## 下一步
+## 结论与维护范围
 
-1. 对 75 条任务执行成对 bootstrap，报告新主系统相对旧最佳的置信区间，尤其检查仅相差 0.0009 的 MRR@10。
-2. 对比第一阶段与 Reranker 的逐任务结果，定位导致多 Skill FullCoverage 下降的候选换位。
-3. 若继续优化 Reranker，应在独立开发集上设计覆盖感知的多正例目标或校准策略；Hard pool 保持冻结，避免用测试集调参。
-4. 后续正式运行继续使用当前目录和四文件产物规范，不覆盖本轮结果。
+当前 RQ1 模型阶段已收敛，不再继续追加训练实验。维护范围只包括 FCSR、
+FCSR-Small、Hard-pool baseline 以及相应报告；历史 single-skill checkpoint、
+所有 Easy report、旧交叉搭配报告和实验性命名均已移除。
 
 ## 入口
 

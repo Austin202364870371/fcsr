@@ -22,3 +22,10 @@ docs/*
 !docs/rq3-agent-planning.md
 !docs/rq4-agent-reflection.md
 !docs/rq5-agent-evaluation.md
+# Track lightweight system metadata without tracking model weights.
+checkpoints/**
+!checkpoints/
+!checkpoints/fcsr/
+!checkpoints/fcsr/manifest.json
+!checkpoints/fcsr-small/
+!checkpoints/fcsr-small/manifest.json

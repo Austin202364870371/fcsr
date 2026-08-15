@@ -1,0 +1,28 @@
+{
+  "schema_version": "fcsr_system_v1",
+  "base_commit": "af6bd60dcea7f15d5fcc1c0ef2c800e8e0569505",
+  "evaluation": {
+    "tier": "hard",
+    "retrieval_top_k": 50,
+    "rerank_top_k": 20,
+    "output_top_k": 10
+  },
+  "system_id": "fcsr-small",
+  "display_name": "FCSR-Small",
+  "status": "data-scale-ablation",
+  "components": {
+    "retriever": "retriever",
+    "reranker": "reranker"
+  },
+  "training": {
+    "retriever_examples": 10741,
+    "reranker_groups": 8965,
+    "single_skill_queries": 7342,
+    "multi_skill_queries": 541
+  },
+  "reports": {
+    "root": "reports/systems/fcsr-small/hard",
+    "retrieval": "rrf",
+    "final": "rrf-rerank"
+  }
+}

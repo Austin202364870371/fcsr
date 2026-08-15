@@ -29,6 +29,8 @@ data/
     single_skill/                Single-skill queries, negatives, and manifest
     multi_skill/                 Validated candidates, queries, and manifest
   training/                      Single-pass, type-weighted mixed training data
+checkpoints/                     FCSR/FCSR-Small component checkpoints and manifests
+reports/                         Hard-only baselines, systems, and canonical tables
 docs/                            Research-question notes and references
 jobs/                            Slurm job templates
 scripts/
@@ -46,7 +48,8 @@ tests/                           Offline regression tests
 
 `data/samples/` is intentionally flat: `sample_skills.jsonl.gz` and
 `manifest.json` live directly in it. Git tracks every `data/**/manifest.json`, while
-large datasets, models, checkpoints, logs, caches, and generated reports stay ignored.
+large datasets, model weights, logs, caches, and generated reports stay ignored. Lightweight
+FCSR system manifests under `checkpoints/` remain tracked.
 
 ## Setup
 
@@ -148,68 +151,88 @@ python -B scripts/build_multiskill_training_data.py \
 
 ## Training
 
-The following commands use local Hugging Face model directories and produce clearly named LoRA adapters.
+FCSR is stored as a two-component system. `fcsr` is the primary model trained from the
+full corpus; `fcsr-small` is the earlier data-scale ablation. Both use the same Qwen3
+0.6B base architecture, so the names describe training-data scale rather than parameter
+count.
+
+```text
+checkpoints/
+  fcsr/
+    retriever/
+    reranker/
+    manifest.json
+  fcsr-small/
+    retriever/
+    reranker/
+    manifest.json
+```
+
+The default training commands write the primary system:
 
 ```bash
 python -B scripts/train_biencoder.py \
   --train-data data/training/biencoder.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Embedding-0.6B \
-  --output-dir checkpoints/fcsr-emb-0.6b-multiskill-weighted
+  --output-dir checkpoints/fcsr/retriever
 
 python -B scripts/train_reranker.py train \
   --groups data/training/reranker.jsonl.gz \
   --skills data/raw/skills_easy.jsonl.gz \
   --model models/Qwen3-Reranker-0.6B \
-  --output-dir checkpoints/fcsr-rank-0.6b-multiskill-weighted
+  --output-dir checkpoints/fcsr/reranker
 ```
 
-For the single-skill baseline, omit the mixed build step and explicitly pass
-`data/synthetic/single_skill/train_biencoder.jsonl.gz` or
-`data/synthetic/single_skill/train_reranker.jsonl.gz`, with checkpoint names
-`fcsr-emb-0.6b-single` and `fcsr-rank-0.6b-single`.
+On the cluster, submit `jobs/train_fcsr_retriever.sbatch` and
+`jobs/train_fcsr_reranker.sbatch`. The historical single-skill FCSR checkpoints are
+not part of the maintained model set.
 
 ## Evaluation
 
-`evaluate.py` exposes independent stages so every experiment has explicit artifacts.
+Only the frozen Hard pool participates in model evaluation. Easy-pool reports are not
+maintained. The primary FCSR pipeline is:
 
-```bash
-# First stage: RRF candidate recall.
-python -B scripts/evaluate.py hybrid \
-  --queries data/raw/evaluation_queries.jsonl.gz \
-  --skills data/raw/skills_hard.jsonl.gz \
-  --model checkpoints/fcsr-emb-0.6b-multiskill-weighted \
-  --top-k 50 --fusion-depth 100 --rrf-k 60 \
-  --output-predictions reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
-  --output-records reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl
-
-# Second stage: rerank the first-stage Top-20 under the frozen protocol.
-python -B scripts/evaluate.py rerank \
-  --retrieval-records reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl \
-  --skills data/raw/skills_hard.jsonl.gz \
-  --model checkpoints/fcsr-rank-0.6b-multiskill-weighted \
-  --top-k 20 \
-  --output-predictions reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
-  --output-records reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl
-
-python -B scripts/evaluate.py score \
-  --tasks data/raw/evaluation_queries.jsonl.gz \
-  --skills data/raw/skills_hard.jsonl.gz \
-  --predictions reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
-  --stage reranker --tier hard \
-  --output-dir reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted
-
-# Render retrieval, final-system, and two-stage comparison tables.
-python -B scripts/render_evaluation_tables.py
+```text
+Task -> BM25 + FCSR Retriever -> RRF Top-50
+     -> FCSR Reranker Top-20 -> final Top-10 Skills
 ```
 
-The renderer writes:
+Reports are grouped by system and stage:
 
-- `reports/tables/hard-retrieval.md`: all first-stage retrievers.
-- `reports/tables/hard-final-systems.md`: one final output for each system.
-- `reports/tables/hard-two-stage.md`: retrieval-versus-rerank comparisons.
+```text
+reports/
+  baselines/hard/
+    bm25/retrieval/
+    base-dense/{retrieval,rerank}/
+    base-rrf/retrieval/
+    skillrouter/{retrieval,rerank}/
+  systems/
+    fcsr/hard/{dense,rrf,dense-rerank,rrf-rerank}/
+    fcsr-small/hard/{dense,rrf,dense-rerank,rrf-rerank}/
+  tables/
+    hard-retrieval.md
+    hard-final.md
+    hard-two-stage.md
+```
 
-Bold values in the final table identify numerical maxima only, not statistical significance.
+Run the primary RRF and reranker stages through Slurm:
+
+```bash
+sbatch jobs/evaluate_fcsr_retrieval.sbatch
+sbatch jobs/evaluate_fcsr_reranker.sbatch
+sbatch jobs/render_reports.sbatch
+```
+
+The retrieval job defaults to `FCSR_SYSTEM=fcsr` and `RETRIEVAL_MODE=rrf`. Use
+`FCSR_SYSTEM=fcsr-small` for the data-scale ablation, or
+`RETRIEVAL_MODE=dense` for the dense-only stage. The reranker job uses the same two
+variables and resolves the matching retrieval records and report directory.
+
+The canonical final table names the full RRF-plus-reranker pipeline `Ours: FCSR` and
+the smaller-data system `Ours: FCSR-Small`. Training details such as type weights stay
+in manifests and methodology documentation instead of public system names. Bold values
+identify numerical maxima only, not statistical significance.
 
 ## Slurm API Generation
 

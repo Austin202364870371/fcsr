@@ -22,5 +22,5 @@ training:
   lora_dropout: 0.05
 
 paths:
-  biencoder_checkpoint: checkpoints/fcsr-emb-0.6b
-  reranker_checkpoint: checkpoints/fcsr-rank-0.6b
+  biencoder_checkpoint: checkpoints/fcsr/retriever
+  reranker_checkpoint: checkpoints/fcsr/reranker
