@@ -1,4 +1,4 @@
-"""Prepare Top-20 groups and train the FCSR listwise reranker."""
+"""Train the FCSR listwise reranker."""
 
 from __future__ import annotations
 
@@ -19,9 +19,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from data_io import load_jsonl, stream_jsonl, write_jsonl_atomic
+from data_io import load_jsonl, stream_jsonl
 from modeling import (
-    build_reranker_groups,
     get_reranker_template_tokens,
     listwise_cross_entropy,
     materialize_reranker_groups,
@@ -145,36 +144,13 @@ def _run_memory_preflight(
     }))
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="FCSR listwise reranker pipeline")
-    commands = parser.add_subparsers(dest="command", required=True)
-
-    prepare = commands.add_parser("prepare", help="build ordered Top-20 groups")
-    prepare.add_argument(
-        "--retrieval", default="data/synthetic/single_skill/train_biencoder.jsonl.gz"
-    )
-    prepare.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
-    prepare.add_argument(
-        "--output", default="data/synthetic/single_skill/train_reranker.jsonl.gz"
-    )
-    prepare.add_argument("--top-k", type=int, default=20)
-    prepare.add_argument("--overwrite", action="store_true")
-
-    train = commands.add_parser("train", help="train Qwen3-Reranker listwise")
-    train.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
-    train.add_argument(
-        "--groups", default="data/training/reranker.jsonl.gz"
-    )
-    train.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
-    train.add_argument("--model")
-    train.add_argument("--output-dir")
-    train.add_argument("--method", choices=("lora", "full"))
-    train.add_argument("--epochs", type=int)
-    train.add_argument("--gradient-accumulation-steps", type=int)
-    train.add_argument("--learning-rate", type=float)
-    train.add_argument("--max-length", type=int)
-    train.add_argument("--precision", choices=("bf16", "fp32"))
-    train.add_argument("--seed", type=int, default=42)
-    train.add_argument("--dry-run", action="store_true")
+    parser = argparse.ArgumentParser(description="Train the FCSR Qwen reranker")
+    parser.add_argument("--config", default="configs/fcsr.yaml")
+    parser.add_argument("--groups", default="data/training/reranker.jsonl.gz")
+    parser.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
+    parser.add_argument("--output-dir")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -190,64 +166,29 @@ def load_config(path: str | Path) -> dict[str, Any]:
     return config
 
 
-def run_prepare(args: argparse.Namespace) -> dict[str, Any]:
-    output = Path(args.output)
-    if output.exists() and not args.overwrite:
-        raise FileExistsError("output exists; pass --overwrite to replace it")
-    records = list(stream_jsonl(args.retrieval))
-    with tqdm(
-        total=len(records),
-        desc="Reranker: building groups",
-        unit="query",
-        dynamic_ncols=True,
-    ) as progress:
-        result = build_reranker_groups(
-            records,
-            stream_jsonl(args.skills),
-            top_k=args.top_k,
-            progress=progress.update,
-        )
-    write_jsonl_atomic(output, result.groups)
-    counts = [len(group["candidates"]) for group in result.groups]
-    return {
-        "output": str(output),
-        "total_queries": result.total_records,
-        "retained_groups": len(result.groups),
-        "dropped_no_positive": result.dropped_no_positive,
-        "mean_candidates": sum(counts) / len(counts) if counts else 0.0,
-    }
-
-
 def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
     config = load_config(args.config)
     model = config.get("model", {})
     training = config.get("training", {})
+    reranker = training.get("reranker", {})
+    lora = training.get("lora", {})
     paths = config.get("paths", {})
     return {
-        "model": args.model
-        or model.get("reranker_name_or_path")
-        or "Qwen/Qwen3-Reranker-0.6B",
+        "model": model.get("reranker", "models/Qwen3-Reranker-0.6B"),
         "output_dir": args.output_dir
         or paths.get("reranker_checkpoint")
         or "checkpoints/fcsr/reranker",
-        "method": args.method or training.get("method", "lora"),
-        "epochs": args.epochs
-        if args.epochs is not None
-        else training.get("epochs_reranker", 1),
-        "gradient_accumulation_steps": args.gradient_accumulation_steps
-        if args.gradient_accumulation_steps is not None
-        else training.get("gradient_accumulation_steps", 16),
-        "learning_rate": args.learning_rate
-        if args.learning_rate is not None
-        else training.get("learning_rate_reranker", 1e-5),
-        "max_length": args.max_length
-        if args.max_length is not None
-        else model.get("max_reranker_length", 4096),
-        "precision": args.precision or training.get("precision", "bf16"),
+        "epochs": reranker.get("epochs", 1),
+        "gradient_accumulation_steps": reranker.get(
+            "gradient_accumulation_steps", 16
+        ),
+        "learning_rate": reranker.get("learning_rate", 1e-5),
+        "max_length": reranker.get("max_length", 4096),
+        "precision": training.get("precision", "bf16"),
         "gradient_checkpointing": training.get("gradient_checkpointing", True),
-        "lora_r": training.get("lora_r", 8),
-        "lora_alpha": training.get("lora_alpha", 16),
-        "lora_dropout": training.get("lora_dropout", 0.05),
+        "lora_r": lora.get("r", 8),
+        "lora_alpha": lora.get("alpha", 16),
+        "lora_dropout": lora.get("dropout", 0.05),
     }
 
 
@@ -327,19 +268,16 @@ def train(
     no_id = tokenizer.convert_tokens_to_ids("no")
     prefix_tokens, suffix_tokens = get_reranker_template_tokens(tokenizer)
 
-    if settings["method"] == "lora":
-        model = get_peft_model(
-            model,
-            LoraConfig(
-                task_type="CAUSAL_LM",
-                r=settings["lora_r"],
-                lora_alpha=settings["lora_alpha"],
-                lora_dropout=settings["lora_dropout"],
-                target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-            ),
-        )
-    elif settings["method"] != "full":
-        raise ValueError("method must be lora or full")
+    model = get_peft_model(
+        model,
+        LoraConfig(
+            task_type="CAUSAL_LM",
+            r=settings["lora_r"],
+            lora_alpha=settings["lora_alpha"],
+            lora_dropout=settings["lora_dropout"],
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        ),
+    )
     if settings["gradient_checkpointing"]:
         model.gradient_checkpointing_enable()
         model.config.use_cache = False
@@ -459,10 +397,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if args.command == "prepare":
-        result = run_prepare(args)
-    else:
-        result = run_train(args)
+    result = run_train(args)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

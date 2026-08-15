@@ -13,18 +13,10 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 CANDIDATE_DIR="${CANDIDATE_DIR:-$PROJECT_DIR/data/synthetic/multi_skill}"
 CONTRACT_DIR="${CONTRACT_DIR:-$PROJECT_DIR/data/contracts}"
-FORMAL_DIR="${FORMAL_DIR:-$PROJECT_DIR/data/synthetic/multi_skill}"
-PILOT_DIR="${PILOT_DIR:-$PROJECT_DIR/data/pilots/multi_skill}"
-LIMIT="${LIMIT:-50}"
-FULL_RUN="${FULL_RUN:-0}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/data/synthetic/multi_skill}"
+LIMIT="${LIMIT:-}"
 OVERWRITE="${OVERWRITE:-0}"
 CONCURRENCY="${CONCURRENCY:-16}"
-
-if [[ "$FULL_RUN" == "1" ]]; then
-  OUTPUT_DIR="$FORMAL_DIR"
-else
-  OUTPUT_DIR="$PILOT_DIR"
-fi
 
 cd "$PROJECT_DIR"
 source "$(conda info --base)/etc/profile.d/conda.sh"
@@ -42,7 +34,7 @@ arguments=(
   --concurrency "$CONCURRENCY"
   --max-attempts 3
 )
-if [[ "$FULL_RUN" != "1" ]]; then
+if [[ -n "$LIMIT" ]]; then
   arguments+=(--limit "$LIMIT")
 fi
 if [[ "$OVERWRITE" == "1" ]]; then

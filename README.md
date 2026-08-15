@@ -1,331 +1,125 @@
 # FCSR
 
-[中文说明](README.zh-CN.md)
-
-FCSR (Function-aware Coverage Skill Retriever) is a reproducible pipeline for large-scale Agent Skill retrieval. It builds evidence-grounded Skill Contracts, derives single-skill and multi-skill synthetic training data, fine-tunes Qwen bi-encoder and reranker adapters, and evaluates retriever or full two-stage systems with a SkillRouter-compatible protocol.
-
-Contracts are used only to construct auditable training data. At inference time, FCSR retrieves the original Skill text: `name + description + body`.
-
-## What Is Included
-
-| Component | Purpose |
-|---|---|
-| Contract extraction | Creates source-evidence-grounded Contract records from a benchmark-safe sample. |
-| Single-skill data | Generates queries and safe local/semantic negatives. |
-| Multi-skill data | Creates Contract-validated skill pairs/triples, then lets an LLM phrase only the validated compositions. |
-| Training | Fine-tunes Qwen3 Embedding and Qwen3 Reranker with LoRA. |
-| Evaluation | Runs dense, BM25, RRF hybrid, reranking, scoring, and canonical result-table rendering. |
-
-## Repository Layout
+FCSR (Full-Coverage Skill Retrieval) trains an auditable two-stage retriever for large Agent Skill libraries:
 
 ```text
-configs/                         Shared model and data defaults
-data/
-  samples/                       Flat sample files and sample manifest
-  contracts/                     Extracted Contracts, failures, and manifest
-  raw/                           Skill pools and public evaluation tasks
-  pilots/                        Isolated pilot outputs
-  synthetic/
-    single_skill/                Single-skill queries, negatives, and manifest
-    multi_skill/                 Validated candidates, queries, and manifest
-  training/                      Single-pass, type-weighted mixed training data
-checkpoints/                     FCSR/FCSR-Small component checkpoints and manifests
-reports/                         Hard-only baselines, systems, and canonical tables
-docs/                            Research-question notes and references
-jobs/                            Slurm job templates
-scripts/
-  build_single_skill_data.py     Contract and single-skill dataset pipeline
-  build_multiskill_candidates.py Contract-guided pair/triple construction
-  generate_multiskill_queries.py LLM query authoring with strict validation
-  build_multiskill_training_data.py
-  train_biencoder.py
-  train_reranker.py
-  evaluate.py
-  render_evaluation_tables.py
-src/                             Reusable implementation modules
-tests/                           Offline regression tests
+Task Query
+  -> BM25 + FCSR Retriever
+  -> Reciprocal Rank Fusion (RRF)
+  -> FCSR Reranker
+  -> Top-10 Skills
 ```
 
-`data/samples/` is intentionally flat: `sample_skills.jsonl.gz` and
-`manifest.json` live directly in it. Git tracks every `data/**/manifest.json`, while
-large datasets, model weights, logs, caches, and generated reports stay ignored. Lightweight
-FCSR system manifests under `checkpoints/` remain tracked.
+The repository maintains the frozen Hard-pool evaluation only. See the [RQ1 document](docs/rq1-skill-retrieval.md) for the method, data statistics, and results, or [README.zh-CN.md](README.zh-CN.md) for Chinese instructions.
 
-## Setup
+## Final artifacts
 
-Use Python 3.10 or newer. Run commands from the repository root.
+Two systems are retained:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env
-# Edit .env and set DEEPSEEK_API_KEY.
-$env:PYTHONPATH = "src"
-python -B -m unittest discover -s tests -v
-```
+- `FCSR`: the official model trained on the complete dataset, under `checkpoints/fcsr/`.
+- `FCSR-Small`: the earlier small-data ablation, under `checkpoints/fcsr-small/`.
 
-On CUDA hosts, install the PyTorch build matching the host CUDA environment before installing `requirements.txt` when necessary. See [PyTorch installation](https://pytorch.org/get-started/locally/).
+Each system contains a Qwen3-Embedding-0.6B LoRA `retriever/` and a Qwen3-Reranker-0.6B LoRA `reranker/`.
 
-Contract extraction and LLM-authored queries use `deepseek-v4-flash` with thinking
-disabled and JSON Output enabled. Copy `.env.example` to `.env`, set
-`DEEPSEEK_API_KEY`, and never commit that file. Contract extraction sends exactly one
-Skill per request and maintains a bounded pool of 16 concurrent requests. Single- and
-multi-Skill query generation use the same continuously refilled request pool; a retry
-occupies only the failed item's worker and never replays a successful item.
-Single-Skill query prompting targets 110-140 words inside the hard 80-180-word
-validation window. The source Skill label is metadata: natural technology and
-capability terms are allowed, while explicit references to a named Skill, plugin, agent,
-or tool are rejected. Final query failures preserve the rejected response for diagnosis.
+Results are organized as follows:
 
-## Data Pipeline
+- `reports/baselines/hard/`: BM25, Dense, RRF, Base Reranker, and SkillRouter.
+- `reports/systems/{fcsr,fcsr-small}/hard/`: stage outputs for FCSR systems.
+- `reports/tables/hard-retrieval.md`: first-stage comparison.
+- `reports/tables/hard-final.md`: final-system comparison.
+- `reports/tables/hard-two-stage.md`: two-stage ablation.
 
-### 1. Build Single-Skill Data
-
-```powershell
-# Benchmark-safe 32k Contract sample, then evidence-grounded Contracts.
-python -B scripts/build_single_skill_data.py sample `
-  --sample-size 32000 --output-dir data/samples --overwrite
-python -B scripts/build_single_skill_data.py contracts `
-  --model deepseek-v4-flash --concurrency 16 `
-  --sample data/samples/sample_skills.jsonl.gz `
-  --output data/contracts/contracts.jsonl.gz `
-  --failures data/contracts/failures.jsonl.gz
-
-# Contract-grounded queries, local negatives, then GPU semantic negatives.
-python -B scripts/build_single_skill_data.py queries
-python -B scripts/build_single_skill_data.py local-negatives --overwrite
-python -B scripts/build_single_skill_data.py semantic-negatives `
-  --model models/Qwen3-Embedding-0.6B --device cuda --overwrite
-```
-
-The resulting single-skill data is stored in `data/synthetic/single_skill/`.
-Local mining combines BM25, same-category, and random candidates, then removes identity,
-normalized-name, exact-body, and high trigram-overlap false negatives. GPU semantic
-mining uses local Qwen3 Embedding Top-50 retrieval and removes candidates whose cosine
-similarity to the positive Skill is at least `0.95`. Removed candidates are retained
-for audit in `semantic_fn_review.jsonl.gz`; the filtered data is then converted into
-directly trainable bi-encoder and reranker records.
-
-### 2. Build Multi-Skill Data
-
-Candidate construction does not call an LLM. A candidate is retained only when valid Contracts, non-benchmark Skills, artifact handoff, and complementary operations support the ordered pair or triple. Artifact handoffs may use exact phrases, containment with at least two substantive tokens, or a single rare identifier corroborated by a matching format or dependency; a lone loose token remains insufficient.
-
-```powershell
-python -B scripts/build_multiskill_candidates.py
-
-# DeepSeek writes tasks only for validated candidates.
-python -B scripts/generate_multiskill_queries.py `
-  --model deepseek-v4-flash --concurrency 16 --max-attempts 3 --progress
-```
-
-The generator validates JSON structure, exact positive Skill IDs and order, source hashes, subtask coverage, and the dependency DAG. A pilot with `--limit` is stratified by the observed pair/triple proportions and sampled evenly across each type score ranking, so it cannot inspect only the leading pairs. It writes `queries.jsonl.gz`, `query_failures.jsonl.gz`, and `review_queue.jsonl.gz` under `data/synthetic/multi_skill/`.
-
-### 3. Build Mixed Training Data
-
-`mixed` stores every original query/group exactly once; there are no
-threefold copies. A pair or triple still produces one bi-encoder record per distinct
-positive Skill because each positive label must be trained once. The reranker keeps the
-same query as one multi-label group. Negatives come only from the Easy pool and exclude
-every positive Skill ID. Qwen retrieves semantic Top-64 candidates; before selection,
-every semantic, BM25, same-category, and random candidate is compared against every
-positive Skill at the `0.95` embedding threshold. Rejected candidates are audited in
-`data/training/semantic_fn_review.jsonl.gz`, and the miner continues scanning the same
-source to refill its quota when possible. Each epoch shuffles all single- and multi-Skill
-records together.
-
-The default type weights are `1.5` for multi-Skill bi-encoder records and `3.0` for
-multi-Skill reranker groups. They keep the on-disk distribution natural while raising
-the expected multi-Skill gradient share from roughly 13–15% to 18–21% for the
-bi-encoder and from roughly 6–8% to 16–21% for the reranker. These are explicit starting
-points for ablation, not literature-derived constants.
-
-```bash
-python -B scripts/build_multiskill_training_data.py \
-  --negative-model models/Qwen3-Embedding-0.6B \
-  --biencoder-multi-loss-weight 1.5 \
-  --reranker-multi-loss-weight 3.0 \
-  --output-dir data/training
-```
-
-## Training
-
-FCSR is stored as a two-component system. `fcsr` is the primary model trained from the
-full corpus; `fcsr-small` is the earlier data-scale ablation. Both use the same Qwen3
-0.6B base architecture, so the names describe training-data scale rather than parameter
-count.
+## Layout
 
 ```text
-checkpoints/
-  fcsr/
-    retriever/
-    reranker/
-    manifest.json
-  fcsr-small/
-    retriever/
-    reranker/
-    manifest.json
+configs/fcsr.yaml       single training configuration
+data/                   raw, synthetic, and mixed training data
+jobs/                   production Slurm jobs
+scripts/                data, training, and evaluation entry points
+src/                    core implementation
+tests/                  unit tests
+checkpoints/            FCSR and FCSR-Small
+reports/                Hard-pool outputs and tables
 ```
 
-The default training commands write the primary system:
+`data/raw/skills_easy.jsonl.gz` remains the training and negative-mining pool. It is not evaluated; final evaluation uses `data/raw/skills_hard.jsonl.gz` only.
+
+## Environment
+
+Run every formal workload through Slurm and use a project-local environment:
 
 ```bash
-python -B scripts/train_biencoder.py \
-  --train-data data/training/biencoder.jsonl.gz \
-  --skills data/raw/skills_easy.jsonl.gz \
-  --model models/Qwen3-Embedding-0.6B \
-  --output-dir checkpoints/fcsr/retriever
-
-python -B scripts/train_reranker.py train \
-  --groups data/training/reranker.jsonl.gz \
-  --skills data/raw/skills_easy.jsonl.gz \
-  --model models/Qwen3-Reranker-0.6B \
-  --output-dir checkpoints/fcsr/reranker
+conda create -p ./env-qgen python=3.10 -y
+conda activate ./env-qgen
+pip install -r requirements.txt
 ```
 
-On the cluster, submit `jobs/train_fcsr_retriever.sbatch` and
-`jobs/train_fcsr_reranker.sbatch`. The historical single-skill FCSR checkpoints are
-not part of the maintained model set.
-
-## Evaluation
-
-Only the frozen Hard pool participates in model evaluation. Easy-pool reports are not
-maintained. The primary FCSR pipeline is:
+Store the DeepSeek key in the untracked `.env` file:
 
 ```text
-Task -> BM25 + FCSR Retriever -> RRF Top-50
-     -> FCSR Reranker Top-20 -> final Top-10 Skills
+DEEPSEEK_API_KEY=...
 ```
 
-Reports are grouped by system and stage:
+Generation uses `deepseek-v4-flash` with 16 concurrent requests by default.
 
-```text
-reports/
-  baselines/hard/
-    bm25/retrieval/
-    base-dense/{retrieval,rerank}/
-    base-rrf/retrieval/
-    skillrouter/{retrieval,rerank}/
-  systems/
-    fcsr/hard/{dense,rrf,dense-rerank,rrf-rerank}/
-    fcsr-small/hard/{dense,rrf,dense-rerank,rrf-rerank}/
-  tables/
-    hard-retrieval.md
-    hard-final.md
-    hard-two-stage.md
-```
+## Data pipeline
 
-Run the primary RRF and reranker stages through Slurm:
-
-```bash
-sbatch jobs/evaluate_fcsr_retrieval.sbatch
-sbatch jobs/evaluate_fcsr_reranker.sbatch
-sbatch jobs/render_reports.sbatch
-```
-
-The retrieval job defaults to `FCSR_SYSTEM=fcsr` and `RETRIEVAL_MODE=rrf`. Use
-`FCSR_SYSTEM=fcsr-small` for the data-scale ablation, or
-`RETRIEVAL_MODE=dense` for the dense-only stage. The reranker job uses the same two
-variables and resolves the matching retrieval records and report directory.
-
-The canonical final table names the full RRF-plus-reranker pipeline `Ours: FCSR` and
-the smaller-data system `Ours: FCSR-Small`. Training details such as type weights stay
-in manifests and methodology documentation instead of public system names. Bold values
-identify numerical maxima only, not statistical significance.
-
-## Slurm API Generation
-
-API generation is a CPU task and must still run through Slurm. The pilot job creates
-the deterministic 32k stratified sample when needed, but extracts only the first 32
-Skills into an isolated output directory:
-
-```bash
-sbatch jobs/extract_contracts_deepseek_pilot.sbatch
-```
-
-After auditing the pilot, submit the separate formal job for all 32,000 Skills:
+This is the single supported reproduction order. Inspect each job before submitting the next one.
 
 ```bash
 sbatch jobs/extract_contracts_deepseek.sbatch
-```
-
-Each request contains one Skill; `CONCURRENCY=16` controls only how many independent
-requests are in flight. Completed records are validated and appended individually.
-Existing `(skill_id, source_hash)` records are skipped, so resubmitting the formal job
-resumes safely. Prompt 007 reads up to 20,000 body characters, orders fields by
-importance, and enforces caps of 12
-operations, 12 constraints, 10 outputs, and 8 items for every other collection;
-the materializer applies the same caps and removes constraint/exclusion duplicates
-that cite the same evidence. It also caps all collection items at 32, removes
-input/precondition items supported only by Skill-trigger phrases, and retains exclusions
-only when their evidence contains explicit negative scope language or appears directly
-under an exclusion heading. Configurable feature flags are not exclusions; workflow
-steps and user requests are not preconditions; near-duplicate constraints and quality
-criteria are collapsed. Contract responses allow up to 6,144 output tokens. Terminal failures
-record the last raw response and provider `finish_reason` when available, which makes
-truncation distinguishable from malformed JSON. The formal output is
-`data/contracts/contracts.jsonl.gz`.
-
-The remaining build is submitted in dependency order:
-
-```bash
-# 1. DeepSeek single-Skill queries (16 concurrent requests).
 sbatch jobs/generate_single_skill_deepseek.sbatch
-
-# 2. Local negatives and local false-negative filtering.
 sbatch jobs/mine_single_skill_local_negatives.sbatch
-
-# 3. Qwen semantic negatives and semantic false-negative filtering.
 sbatch jobs/mine_single_skill_semantic_negatives.sbatch
-
-# 4. Convert filtered single-Skill records into reranker groups.
 sbatch jobs/prepare_single_skill_reranker.sbatch
-
-# 5. Build Contract-validated multi-Skill candidates.
 sbatch jobs/build_multi_skill_candidates.sbatch
-
-# 6. Audit a 50-candidate DeepSeek pilot.
 sbatch jobs/generate_multiskill_deepseek.sbatch
-
-# 7. Generate all validated multi-Skill queries after pilot review.
-sbatch --export=ALL,FULL_RUN=1 jobs/generate_multiskill_deepseek.sbatch
-
-# 8. Mine multi-Skill negatives, filter false negatives, and build mixed data.
 sbatch jobs/build_mixed_training_data.sbatch
 ```
 
-The two DeepSeek query jobs use `deepseek-v4-flash`, JSON Output, disabled thinking,
-one item per request, and 16 requests in flight. The negative-mining and training-data
-jobs use only local Qwen models. Add Slurm `afterok` dependencies when submitting the
-sequence together; do not start a downstream stage before its manifest and artifacts
-have been audited.
+To validate multi-Skill generation on a small subset, limit the formal command without creating a separate pilot tree:
 
-## Why Weighted Mixing Instead of 3x Copies
+```bash
+sbatch --export=ALL,LIMIT=50 jobs/generate_multiskill_deepseek.sbatch
+```
 
-The previous 8k run contained 7,342 single-Skill and 541 validated multi-Skill queries,
-or about 93.1% versus 6.9% before expansion. A 32k run should therefore be planned as
-roughly 30k–31.5k single-Skill plus 2.2k–2.4k multi-Skill queries if candidate yield is
-similar; the actual counts must come from the new manifests. Pair/triple positive
-expansion makes the bi-encoder's raw multi-Skill record share higher than the query
-share, so using one sampling multiplier for both models is not well calibrated.
+Negative mining combines BM25, same-category, random, and semantic candidates. Every candidate is checked against all positives; removed false-negative candidates are recorded in `semantic_fn_review.jsonl.gz`.
 
-Multi-task literature generally treats task proportions as an optimization policy:
-interleaving tasks can reduce forgetting, and performance-aware or learned task
-sampling can outperform uniform sampling. Retrieval work also warns that naive
-multi-task mixing can trail task-specialized models. Accordingly, FCSR preserves each
-original example once, interleaves both types by epoch shuffling, and applies separate
-model-specific weights. See [Dynamic Sampling Strategies for Multi-Task Reading
-Comprehension](https://aclanthology.org/2020.acl-main.86/), [Learning Task Sampling
-Policy for Multitask Learning](https://aclanthology.org/2021.findings-emnlp.375/),
-[Multi-Task Retrieval for Knowledge-Intensive Tasks](https://aclanthology.org/2021.acl-long.89/),
-and [Improving Multitask Retrieval by Promoting Task
-Specialization](https://aclanthology.org/2023.tacl-1.68/). The default weights are an
-FCSR engineering choice and should be compared against `1.0/1.0` and at least one
-stronger weighting setting under the same epoch and seed budget.
+## Training
 
-## Documentation
+All official hyperparameters live in `configs/fcsr.yaml`; both components use LoRA:
 
-- [RQ1: Skill Retrieval](docs/rq1-skill-retrieval.md)
-- [Research question map](docs/README.md)
-- [Chinese README](README.zh-CN.md)
+```bash
+sbatch jobs/train_fcsr_retriever.sbatch
+sbatch jobs/train_fcsr_reranker.sbatch
+```
+
+The default output paths already contain the final checkpoints. Set a new `OUTPUT_DIR` for reproduction; the jobs refuse to overwrite non-empty directories.
+
+## Hard-pool evaluation
+
+Run each first-stage method before its reranker:
+
+```bash
+sbatch --export=ALL,FCSR_SYSTEM=fcsr,RETRIEVAL_MODE=dense jobs/evaluate_fcsr_retrieval.sbatch
+sbatch --export=ALL,FCSR_SYSTEM=fcsr,RETRIEVAL_MODE=rrf jobs/evaluate_fcsr_retrieval.sbatch
+sbatch --export=ALL,FCSR_SYSTEM=fcsr,RETRIEVAL_MODE=dense jobs/evaluate_fcsr_reranker.sbatch
+sbatch --export=ALL,FCSR_SYSTEM=fcsr,RETRIEVAL_MODE=rrf jobs/evaluate_fcsr_reranker.sbatch
+```
+
+Use `FCSR_SYSTEM=fcsr-small` for the scale ablation. The frozen protocol uses first-stage Top-50, RRF depth 100, `rrf_k=60`, reranker Top-20, and final Top-10 Skills.
+
+Render the canonical tables with:
+
+```bash
+sbatch jobs/render_reports.sbatch
+```
+
+## Validation
+
+```bash
+bash -n jobs/*.sbatch
+PYTHONPATH=.:src ./env-qgen/bin/python -m unittest discover -s tests -v
+```
+
+Git excludes large data, checkpoints, logs, and reports. Small manifests remain tracked to preserve provenance and validation metadata.

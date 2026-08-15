@@ -71,8 +71,24 @@ echo "Evaluating $FCSR_SYSTEM $RETRIEVAL_MODE retrieval on the Hard pool"
 echo "node=$(hostname) model=$MODEL_DIR output=$OUTPUT_DIR batch_size=$BATCH_SIZE"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
-python -u -B scripts/evaluate.py "$COMMAND"   --queries "$QUERIES"   --skills "$SKILLS"   --model "$MODEL_DIR"   --top-k 50   "${EXTRA_ARGS[@]}"   --batch-size "$BATCH_SIZE"   --query-max-length 512   --skill-max-length 2048   --device cuda   --output-predictions "$OUTPUT_DIR/predictions.json"   --output-records "$OUTPUT_DIR/records.jsonl"
+python -u -B scripts/evaluate.py "$COMMAND" \
+  --queries "$QUERIES" \
+  --skills "$SKILLS" \
+  --model "$MODEL_DIR" \
+  --top-k 50 \
+  "${EXTRA_ARGS[@]}" \
+  --batch-size "$BATCH_SIZE" \
+  --query-max-length 512 \
+  --skill-max-length 2048 \
+  --device cuda \
+  --output-predictions "$OUTPUT_DIR/predictions.json" \
+  --output-records "$OUTPUT_DIR/records.jsonl"
 
-python -u -B scripts/evaluate.py score   --tasks "$QUERIES"   --skills "$SKILLS"   --predictions "$OUTPUT_DIR/predictions.json"   --stage retrieval   --tier hard   --output-dir "$OUTPUT_DIR"
+python -u -B scripts/evaluate.py score \
+  --tasks "$QUERIES" \
+  --skills "$SKILLS" \
+  --predictions "$OUTPUT_DIR/predictions.json" \
+  --stage retrieval \
+  --output-dir "$OUTPUT_DIR"
 
 echo "Retrieval evaluation completed: $OUTPUT_DIR"

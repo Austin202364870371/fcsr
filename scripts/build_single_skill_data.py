@@ -18,7 +18,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from data_io import stream_jsonl, write_jsonl_atomic
-from modeling import encode_texts, format_query, format_skill, load_embedding_model
+from modeling import (
+    build_reranker_groups,
+    encode_texts,
+    format_query,
+    format_skill,
+    load_embedding_model,
+)
 from retrieval import (
     embedding_false_negative_filter,
     merge_negative_sources,
@@ -101,6 +107,19 @@ def build_parser() -> argparse.ArgumentParser:
     semantic.add_argument("--skill-max-length", type=int, default=2048)
     semantic.add_argument("--device", default="cuda")
     semantic.add_argument("--overwrite", action="store_true")
+
+    reranker = subparsers.add_parser(
+        "reranker-groups", help="build ordered Top-20 reranker groups"
+    )
+    reranker.add_argument(
+        "--retrieval", default="data/synthetic/single_skill/train_biencoder.jsonl.gz"
+    )
+    reranker.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
+    reranker.add_argument(
+        "--output", default="data/synthetic/single_skill/train_reranker.jsonl.gz"
+    )
+    reranker.add_argument("--top-k", type=int, default=20)
+    reranker.add_argument("--overwrite", action="store_true")
     return parser
 
 
@@ -369,6 +388,34 @@ def run_semantic_negatives(args: argparse.Namespace) -> dict:
     }
 
 
+def run_reranker_groups(args: argparse.Namespace) -> dict:
+    output = Path(args.output)
+    if output.exists() and not args.overwrite:
+        raise FileExistsError("output exists; pass --overwrite to replace it")
+    records = list(stream_jsonl(args.retrieval))
+    with tqdm(
+        total=len(records),
+        desc="Reranker: building groups",
+        unit="query",
+        dynamic_ncols=True,
+    ) as progress:
+        result = build_reranker_groups(
+            records,
+            stream_jsonl(args.skills),
+            top_k=args.top_k,
+            progress=progress.update,
+        )
+    write_jsonl_atomic(output, result.groups)
+    counts = [len(group["candidates"]) for group in result.groups]
+    return {
+        "output": str(output),
+        "total_queries": result.total_records,
+        "retained_groups": len(result.groups),
+        "dropped_no_positive": result.dropped_no_positive,
+        "mean_candidates": sum(counts) / len(counts) if counts else 0.0,
+    }
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -382,6 +429,8 @@ def main() -> None:
         summary = run_local_negatives(args)
     elif args.command == "semantic-negatives":
         summary = run_semantic_negatives(args)
+    elif args.command == "reranker-groups":
+        summary = run_reranker_groups(args)
     else:
         parser.error(f"unsupported command: {args.command}")
         return

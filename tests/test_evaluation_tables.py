@@ -42,7 +42,7 @@ class EvaluationTableTests(unittest.TestCase):
             offset = offsets[(stage, location)]
             return {
                 "stage": stage,
-                "tier": "hard",
+                "benchmark": "hard",
                 "metrics": {
                     "all": {key: value + offset for key, value in METRICS.items()},
                     "multi": {"FullCoverage@10": 0.2 + offset},

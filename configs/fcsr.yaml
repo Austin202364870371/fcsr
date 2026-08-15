@@ -1,0 +1,28 @@
+model:
+  retriever: models/Qwen3-Embedding-0.6B
+  reranker: models/Qwen3-Reranker-0.6B
+
+training:
+  precision: bf16
+  gradient_checkpointing: true
+  lora:
+    r: 8
+    alpha: 16
+    dropout: 0.05
+  retriever:
+    epochs: 1
+    micro_batch_size: 4
+    gradient_accumulation_steps: 4
+    learning_rate: 0.00002
+    temperature: 0.05
+    query_max_length: 512
+    skill_max_length: 2048
+  reranker:
+    epochs: 1
+    gradient_accumulation_steps: 16
+    learning_rate: 0.00001
+    max_length: 4096
+
+paths:
+  retriever_checkpoint: checkpoints/fcsr/retriever
+  reranker_checkpoint: checkpoints/fcsr/reranker

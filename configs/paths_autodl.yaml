@@ -1,4 +1,0 @@
-root: /root/autodl-tmp/fcsr
-data_root: /root/autodl-tmp/fcsr/data
-checkpoint_root: /root/autodl-tmp/fcsr/checkpoints
-report_root: /root/autodl-tmp/fcsr/reports

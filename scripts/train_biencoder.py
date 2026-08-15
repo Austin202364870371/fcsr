@@ -50,23 +50,13 @@ def enable_checkpoint_input_gradients(model: Any) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train the FCSR Qwen bi-encoder")
-    parser.add_argument("--config", default="configs/model_qwen3_0_6b.yaml")
+    parser.add_argument("--config", default="configs/fcsr.yaml")
     parser.add_argument(
         "--train-data",
         default="data/training/biencoder.jsonl.gz",
     )
     parser.add_argument("--skills", default="data/raw/skills_easy.jsonl.gz")
-    parser.add_argument("--model")
     parser.add_argument("--output-dir")
-    parser.add_argument("--method", choices=("lora", "full"))
-    parser.add_argument("--epochs", type=int)
-    parser.add_argument("--micro-batch-size", type=int)
-    parser.add_argument("--gradient-accumulation-steps", type=int)
-    parser.add_argument("--learning-rate", type=float)
-    parser.add_argument("--temperature", type=float)
-    parser.add_argument("--query-max-length", type=int)
-    parser.add_argument("--skill-max-length", type=int)
-    parser.add_argument("--precision", choices=("bf16", "fp32"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -88,41 +78,28 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
     config = load_config(args.config)
     model = config.get("model", {})
     training = config.get("training", {})
+    retriever = training.get("retriever", {})
+    lora = training.get("lora", {})
     paths = config.get("paths", {})
     return {
-        "model": args.model
-        or model.get("embedding_name_or_path")
-        or "Qwen/Qwen3-Embedding-0.6B",
+        "model": model.get("retriever", "models/Qwen3-Embedding-0.6B"),
         "output_dir": args.output_dir
-        or paths.get("biencoder_checkpoint")
+        or paths.get("retriever_checkpoint")
         or "checkpoints/fcsr/retriever",
-        "method": args.method or training.get("method", "lora"),
-        "epochs": args.epochs
-        if args.epochs is not None
-        else training.get("epochs_biencoder", 1),
-        "micro_batch_size": args.micro_batch_size
-        if args.micro_batch_size is not None
-        else training.get("batch_size_biencoder", 1),
-        "gradient_accumulation_steps": args.gradient_accumulation_steps
-        if args.gradient_accumulation_steps is not None
-        else training.get("gradient_accumulation_steps", 16),
-        "learning_rate": args.learning_rate
-        if args.learning_rate is not None
-        else training.get("learning_rate_biencoder", 2e-5),
-        "temperature": args.temperature
-        if args.temperature is not None
-        else training.get("temperature", 0.05),
-        "query_max_length": args.query_max_length
-        if args.query_max_length is not None
-        else model.get("max_query_length", 512),
-        "skill_max_length": args.skill_max_length
-        if args.skill_max_length is not None
-        else model.get("max_skill_length", 2048),
-        "precision": args.precision or training.get("precision", "bf16"),
+        "epochs": retriever.get("epochs", 1),
+        "micro_batch_size": retriever.get("micro_batch_size", 4),
+        "gradient_accumulation_steps": retriever.get(
+            "gradient_accumulation_steps", 4
+        ),
+        "learning_rate": retriever.get("learning_rate", 2e-5),
+        "temperature": retriever.get("temperature", 0.05),
+        "query_max_length": retriever.get("query_max_length", 512),
+        "skill_max_length": retriever.get("skill_max_length", 2048),
+        "precision": training.get("precision", "bf16"),
         "gradient_checkpointing": training.get("gradient_checkpointing", True),
-        "lora_r": training.get("lora_r", 8),
-        "lora_alpha": training.get("lora_alpha", 16),
-        "lora_dropout": training.get("lora_dropout", 0.05),
+        "lora_r": lora.get("r", 8),
+        "lora_alpha": lora.get("alpha", 16),
+        "lora_dropout": lora.get("dropout", 0.05),
     }
 
 
@@ -196,19 +173,16 @@ def train(
     )
     if settings["gradient_checkpointing"]:
         enable_checkpoint_input_gradients(model)
-    if settings["method"] == "lora":
-        model = get_peft_model(
-            model,
-            LoraConfig(
-                task_type="FEATURE_EXTRACTION",
-                r=settings["lora_r"],
-                lora_alpha=settings["lora_alpha"],
-                lora_dropout=settings["lora_dropout"],
-                target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-            ),
-        )
-    elif settings["method"] != "full":
-        raise ValueError("method must be lora or full")
+    model = get_peft_model(
+        model,
+        LoraConfig(
+            task_type="FEATURE_EXTRACTION",
+            r=settings["lora_r"],
+            lora_alpha=settings["lora_alpha"],
+            lora_dropout=settings["lora_dropout"],
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        ),
+    )
     if settings["gradient_checkpointing"]:
         model.gradient_checkpointing_enable()
         model.config.use_cache = False

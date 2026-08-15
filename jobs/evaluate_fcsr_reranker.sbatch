@@ -67,8 +67,22 @@ echo "Evaluating $FCSR_SYSTEM reranker over Hard-pool $RETRIEVAL_MODE Top-20 can
 echo "node=$(hostname) retrieval=$RETRIEVAL_RECORDS model=$MODEL_DIR output=$OUTPUT_DIR batch_size=$BATCH_SIZE"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
-python -u -B scripts/evaluate.py rerank   --retrieval-records "$RETRIEVAL_RECORDS"   --skills "$SKILLS"   --model "$MODEL_DIR"   --top-k 20   --batch-size "$BATCH_SIZE"   --max-length 4096   --device cuda   --output-predictions "$OUTPUT_DIR/predictions.json"   --output-records "$OUTPUT_DIR/records.jsonl"
+python -u -B scripts/evaluate.py rerank \
+  --retrieval-records "$RETRIEVAL_RECORDS" \
+  --skills "$SKILLS" \
+  --model "$MODEL_DIR" \
+  --top-k 20 \
+  --batch-size "$BATCH_SIZE" \
+  --max-length 4096 \
+  --device cuda \
+  --output-predictions "$OUTPUT_DIR/predictions.json" \
+  --output-records "$OUTPUT_DIR/records.jsonl"
 
-python -u -B scripts/evaluate.py score   --tasks "$QUERIES"   --skills "$SKILLS"   --predictions "$OUTPUT_DIR/predictions.json"   --stage reranker   --tier hard   --output-dir "$OUTPUT_DIR"
+python -u -B scripts/evaluate.py score \
+  --tasks "$QUERIES" \
+  --skills "$SKILLS" \
+  --predictions "$OUTPUT_DIR/predictions.json" \
+  --stage reranker \
+  --output-dir "$OUTPUT_DIR"
 
 echo "Reranker evaluation completed: $OUTPUT_DIR"

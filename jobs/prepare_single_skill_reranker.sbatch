@@ -18,7 +18,7 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$PROJECT_DIR/env-qgen"
 mkdir -p "$PROJECT_DIR/logs" "$OUTPUT_DIR"
 
-python -B scripts/train_reranker.py prepare \
+python -B scripts/build_single_skill_data.py reranker-groups \
   --retrieval "$OUTPUT_DIR/train_biencoder.jsonl.gz" \
   --skills data/raw/skills_easy.jsonl.gz \
   --output "$OUTPUT_DIR/train_reranker.jsonl.gz" \

@@ -54,7 +54,7 @@ class RerankerSetupTests(unittest.TestCase):
     def test_train_parser_does_not_expose_resume_options(self) -> None:
         parser = build_parser()
         with self.assertRaises(SystemExit):
-            parser.parse_args(["train", "--checkpoint-every", "250"])
+            parser.parse_args(["--checkpoint-every", "250"])
 
 
 if __name__ == "__main__":

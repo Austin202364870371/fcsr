@@ -82,4 +82,4 @@ FCSR-Small、Hard-pool baseline 以及相应报告；历史 single-skill checkpo
 
 ## 入口
 
-`scripts/build_single_skill_data.py`、`scripts/build_multiskill_candidates.py`、`scripts/generate_multiskill_queries.py`、`scripts/build_multiskill_training_data.py`、`scripts/train_biencoder.py`、`scripts/train_reranker.py`、`scripts/evaluate.py`、`scripts/render_evaluation_tables.py`、`configs/base.yaml`。
+`scripts/build_single_skill_data.py`、`scripts/build_multiskill_candidates.py`、`scripts/generate_multiskill_queries.py`、`scripts/build_multiskill_training_data.py`、`scripts/train_biencoder.py`、`scripts/train_reranker.py`、`scripts/evaluate.py`、`scripts/render_evaluation_tables.py`、`configs/fcsr.yaml`。

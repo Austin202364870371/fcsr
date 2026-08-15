@@ -82,7 +82,6 @@ def build_parser() -> argparse.ArgumentParser:
     score.add_argument("--skills", required=True)
     score.add_argument("--predictions", required=True)
     score.add_argument("--stage", choices=("retrieval", "reranker"), required=True)
-    score.add_argument("--tier", choices=("easy", "hard"), required=True)
     score.add_argument("--output-dir", default="reports")
     return parser
 
@@ -407,7 +406,7 @@ def run_score(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = {
         "stage": args.stage,
-        "tier": args.tier,
+        "benchmark": "hard",
         "metrics": result.summary,
         "skipped_generic_only": result.skipped_generic_only,
         "skipped_missing_prediction": result.skipped_missing_prediction,

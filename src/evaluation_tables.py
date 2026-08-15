@@ -145,7 +145,8 @@ def _load_summary(reports_dir: Path, stage: str, location: str) -> dict[str, Any
         if not path.is_file():
             continue
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("stage") == stage and payload.get("tier") == "hard":
+        benchmark = payload.get("benchmark", payload.get("tier"))
+        if payload.get("stage") == stage and benchmark == "hard":
             return payload
     raise FileNotFoundError(
         f"missing Hard {stage} summary at {location}: "
