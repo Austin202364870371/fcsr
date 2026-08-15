@@ -178,35 +178,36 @@ For the single-skill baseline, omit the mixed build step and explicitly pass
 python -B scripts/evaluate.py hybrid \
   --queries data/raw/evaluation_queries.jsonl.gz \
   --skills data/raw/skills_hard.jsonl.gz \
-  --model checkpoints/fcsr-emb-0.6b \
+  --model checkpoints/fcsr-emb-0.6b-multiskill-weighted \
   --top-k 50 --fusion-depth 100 --rrf-k 60 \
-  --output-predictions reports/retrieval/hard/hybrid/predictions.json \
-  --output-records reports/retrieval/hard/hybrid/records.jsonl
+  --output-predictions reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
+  --output-records reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl
 
-# Second stage: rerank the Top-50 candidates, keeping Top-10 for scoring.
+# Second stage: rerank the first-stage Top-20 under the frozen protocol.
 python -B scripts/evaluate.py rerank \
-  --retrieval-records reports/retrieval/hard/hybrid/records.jsonl \
+  --retrieval-records reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl \
   --skills data/raw/skills_hard.jsonl.gz \
   --model checkpoints/fcsr-rank-0.6b-multiskill-weighted \
-  --top-k 10 \
-  --output-predictions reports/reranker/hard/rrf-base-emb-multiskill-weighted/predictions.json \
-  --output-records reports/reranker/hard/rrf-base-emb-multiskill-weighted/records.jsonl
+  --top-k 20 \
+  --output-predictions reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
+  --output-records reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl
 
 python -B scripts/evaluate.py score \
   --tasks data/raw/evaluation_queries.jsonl.gz \
   --skills data/raw/skills_hard.jsonl.gz \
-  --predictions reports/reranker/hard/rrf-base-emb-multiskill-weighted/predictions.json \
+  --predictions reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
   --stage reranker --tier hard \
-  --output-dir reports/reranker/hard/rrf-base-emb-multiskill-weighted
+  --output-dir reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted
 
-# Render one final-system table and one two-stage ablation table.
+# Render retrieval, final-system, and two-stage comparison tables.
 python -B scripts/render_evaluation_tables.py
 ```
 
 The renderer writes:
 
-- `reports/tables/hard-baselines.md`: one final output for each system.
-- `reports/tables/hard-two-stage-ablation.md`: retrieval-versus-rerank comparisons for two-stage systems.
+- `reports/tables/hard-retrieval.md`: all first-stage retrievers.
+- `reports/tables/hard-final-systems.md`: one final output for each system.
+- `reports/tables/hard-two-stage.md`: retrieval-versus-rerank comparisons.
 
 Bold values in the final table identify numerical maxima only, not statistical significance.
 

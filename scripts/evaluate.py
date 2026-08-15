@@ -405,7 +405,6 @@ def run_score(args: argparse.Namespace) -> dict[str, Any]:
     result = evaluate_predictions(tasks, predictions, pool_ids)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{args.stage}_{args.tier}"
     summary = {
         "stage": args.stage,
         "tier": args.tier,
@@ -414,8 +413,8 @@ def run_score(args: argparse.Namespace) -> dict[str, Any]:
         "skipped_missing_prediction": result.skipped_missing_prediction,
         "skipped_no_gt_in_pool": result.skipped_no_gt_in_pool,
     }
-    _write_json(output_dir / f"{stem}_summary.json", summary)
-    write_jsonl_atomic(output_dir / f"{stem}_details.jsonl", result.details)
+    _write_json(output_dir / "summary.json", summary)
+    write_jsonl_atomic(output_dir / "details.jsonl", result.details)
     return summary
 
 

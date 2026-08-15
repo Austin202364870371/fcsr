@@ -170,35 +170,36 @@ python -B scripts/train_reranker.py train \
 python -B scripts/evaluate.py hybrid \
   --queries data/raw/evaluation_queries.jsonl.gz \
   --skills data/raw/skills_hard.jsonl.gz \
-  --model checkpoints/fcsr-emb-0.6b \
+  --model checkpoints/fcsr-emb-0.6b-multiskill-weighted \
   --top-k 50 --fusion-depth 100 --rrf-k 60 \
-  --output-predictions reports/retrieval/hard/hybrid/predictions.json \
-  --output-records reports/retrieval/hard/hybrid/records.jsonl
+  --output-predictions reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
+  --output-records reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl
 
-# 第二阶段：重排 Top-50 候选，取 Top-10 打分。
+# 第二阶段：按冻结协议重排第一阶段的 Top-20 候选。
 python -B scripts/evaluate.py rerank \
-  --retrieval-records reports/retrieval/hard/hybrid/records.jsonl \
+  --retrieval-records reports/retrieval/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl \
   --skills data/raw/skills_hard.jsonl.gz \
   --model checkpoints/fcsr-rank-0.6b-multiskill-weighted \
-  --top-k 10 \
-  --output-predictions reports/reranker/hard/rrf-base-emb-multiskill-weighted/predictions.json \
-  --output-records reports/reranker/hard/rrf-base-emb-multiskill-weighted/records.jsonl
+  --top-k 20 \
+  --output-predictions reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
+  --output-records reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/records.jsonl
 
 python -B scripts/evaluate.py score \
   --tasks data/raw/evaluation_queries.jsonl.gz \
   --skills data/raw/skills_hard.jsonl.gz \
-  --predictions reports/reranker/hard/rrf-base-emb-multiskill-weighted/predictions.json \
+  --predictions reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted/predictions.json \
   --stage reranker --tier hard \
-  --output-dir reports/reranker/hard/rrf-base-emb-multiskill-weighted
+  --output-dir reports/reranker/hard/rrf-fcsr-emb-multiskill-weighted
 
-# 输出最终系统表和两阶段消融表。
+# 输出第一阶段、最终系统和两阶段消融表。
 python -B scripts/render_evaluation_tables.py
 ```
 
 生成的表格：
 
-- `reports/tables/hard-baselines.md`：每个系统只保留最终输出。
-- `reports/tables/hard-two-stage-ablation.md`：仅比较两阶段系统的 retrieval 与 rerank。
+- `reports/tables/hard-retrieval.md`：比较所有第一阶段检索器。
+- `reports/tables/hard-final-systems.md`：每个系统只保留最终输出。
+- `reports/tables/hard-two-stage.md`：比较两阶段系统的 retrieval 与 rerank。
 
 最终表中的加粗仅表示数值最大，不表示统计显著性。
 

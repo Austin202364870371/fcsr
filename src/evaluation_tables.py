@@ -24,6 +24,19 @@ FINAL_SYSTEMS = (
     ("Flat-Dense + Base Reranker", "Rerank", "reranker", "dense-base-reranker"),
     ("SkillRouter", "Rerank", "reranker", "skillrouter"),
     ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
+    ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
+    (
+        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
+        "Rerank",
+        "reranker",
+        "rrf-base-emb-multiskill3x",
+    ),
+    (
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Rerank",
+        "reranker",
+        "rrf-fcsr-emb-multiskill3x-top20",
+    ),
     ("Ours: FCSR + MultiSkill-Weighted", "Rerank", "reranker", "fcsr-multiskill-weighted"),
     (
         "Ours: RRF (Base Emb.) + FCSR MultiSkill-Weighted",
@@ -42,6 +55,36 @@ OPTIONAL_FINAL_SYSTEMS = (
     ),
 )
 
+RETRIEVAL_SYSTEMS = (
+    ("BM25", "Retrieval", "retrieval", "bm25"),
+    ("Base Emb.", "Retrieval", "retrieval", "dense"),
+    ("RRF (Base Emb.)", "Retrieval", "retrieval", "hybrid"),
+    ("SkillRouter", "Retrieval", "retrieval", "skillrouter"),
+    ("FCSR Emb. (Single-Skill)", "Retrieval", "retrieval", "fcsr-single"),
+    ("FCSR Emb. (MultiSkill-3x)", "Retrieval", "retrieval", "fcsr-multiskill3x"),
+    (
+        "RRF (FCSR Emb. MultiSkill-3x)",
+        "Retrieval",
+        "retrieval",
+        "rrf-fcsr-emb-multiskill3x",
+    ),
+)
+
+OPTIONAL_RETRIEVAL_SYSTEMS = (
+    (
+        "FCSR Emb. (MultiSkill-Weighted)",
+        "Retrieval",
+        "retrieval",
+        "fcsr-multiskill-weighted",
+    ),
+    (
+        "RRF (FCSR Emb. MultiSkill-Weighted)",
+        "Retrieval",
+        "retrieval",
+        "rrf-fcsr-emb-multiskill-weighted",
+    ),
+)
+
 TWO_STAGE_SYSTEMS = (
     ("Flat-Dense + Base Reranker", "Retrieval", "retrieval", "dense"),
     ("Flat-Dense + Base Reranker", "Rerank", "reranker", "dense-base-reranker"),
@@ -49,6 +92,32 @@ TWO_STAGE_SYSTEMS = (
     ("SkillRouter", "Rerank", "reranker", "skillrouter"),
     ("Ours: FCSR", "Retrieval", "retrieval", "fcsr-single"),
     ("Ours: FCSR", "Rerank", "reranker", "fcsr-single"),
+    ("Ours: FCSR + MultiSkill-3x", "Retrieval", "retrieval", "fcsr-multiskill3x"),
+    ("Ours: FCSR + MultiSkill-3x", "Rerank", "reranker", "fcsr-multiskill3x"),
+    (
+        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
+        "Retrieval",
+        "retrieval",
+        "hybrid",
+    ),
+    (
+        "Ours: RRF (Base Emb.) + FCSR MultiSkill-3x",
+        "Rerank",
+        "reranker",
+        "rrf-base-emb-multiskill3x",
+    ),
+    (
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Retrieval",
+        "retrieval",
+        "rrf-fcsr-emb-multiskill3x",
+    ),
+    (
+        "Ours: RRF (FCSR Emb.) + FCSR MultiSkill-3x",
+        "Rerank",
+        "reranker",
+        "rrf-fcsr-emb-multiskill3x-top20",
+    ),
     ("Ours: FCSR + MultiSkill-Weighted", "Retrieval", "retrieval", "fcsr-multiskill-weighted"),
     ("Ours: FCSR + MultiSkill-Weighted", "Rerank", "reranker", "fcsr-multiskill-weighted"),
     ("Ours: RRF (Base Emb.) + FCSR MultiSkill-Weighted", "Retrieval", "retrieval", "hybrid"),
@@ -82,8 +151,23 @@ def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dic
     output_dir = Path(output_dir) if output_dir is not None else reports_dir / "tables"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    final_path = output_dir / "hard-baselines.md"
-    ablation_path = output_dir / "hard-two-stage-ablation.md"
+    retrieval_path = output_dir / "hard-retrieval.md"
+    final_path = output_dir / "hard-final-systems.md"
+    ablation_path = output_dir / "hard-two-stage.md"
+    retrieval_path.write_text(
+        _render_table(
+            "Hard Pool Retrieval Comparison",
+            _load_rows(
+                reports_dir,
+                _available_systems(
+                    reports_dir, RETRIEVAL_SYSTEMS, OPTIONAL_RETRIEVAL_SYSTEMS
+                ),
+            ),
+            stage_header="Stage",
+            bold_best=True,
+        ),
+        encoding="utf-8",
+    )
     final_path.write_text(
         _render_table(
             "Hard Pool Final System Comparison",
@@ -108,7 +192,11 @@ def render_hard_tables(reports_dir: Path, output_dir: Path | None = None) -> dic
         ),
         encoding="utf-8",
     )
-    return {"final": final_path, "ablation": ablation_path}
+    return {
+        "retrieval": retrieval_path,
+        "final": final_path,
+        "ablation": ablation_path,
+    }
 
 
 def _available_systems(
